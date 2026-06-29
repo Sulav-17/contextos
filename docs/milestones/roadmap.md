@@ -9,13 +9,14 @@
 
 ## 2. Backend and local platform foundation
 
-- Status: implementation approved to start; not a later feature milestone.
+- Status: approved.
 - Absorbs original milestones: 2.
 - Goal: create the typed backend foundation, local infrastructure, migrations, CI workflow, and reproducible developer platform.
 - Security review gate: infrastructure, logging, readiness, and migration behavior must be reviewed before authentication or tenant-owned data models begin.
 
 ## 3. Frontend experience design
 
+- Status: approved design gate; frontend implementation follows concept approval and remains blocked until then.
 - Absorbs original milestones: 3.
 - Goal: define the initial user experience and visual direction before frontend implementation.
 - Security review gate: none beyond existing product and architecture constraints because this remains a design milestone.
