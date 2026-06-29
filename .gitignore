@@ -1,0 +1,47 @@
+# Operating system files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# Node dependencies and build output
+node_modules/
+.next/
+dist/
+build/
+coverage/
+
+# Test and coverage artifacts
+.coverage
+htmlcov/
+
+# Local Supabase state and temporary data
+.supabase/
+tmp/
+temp/
+uploads/
+data/
+
+# Logs
+*.log
+logs/
