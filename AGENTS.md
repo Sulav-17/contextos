@@ -183,13 +183,29 @@ The interface must remain accessible, responsive, transparent, and useful withou
 
 ## Commands
 
-Stable commands will be added after the environments are initialized.
+Run backend commands from `backend/` unless noted otherwise.
 
-Until then:
-
-- do not invent setup, test, lint, migration, or deployment commands;
-- inspect repository configuration for the correct command;
-- update this section when commands become stable.
+- Dependency synchronization: `uv sync --locked --all-groups`
+- Run the API: `uv run uvicorn contextos.main:app --host 127.0.0.1 --port 8000`
+- Format code: `uv run ruff format .`
+- Check formatting: `uv run ruff format --check .`
+- Lint: `uv run ruff check .`
+- Type-check: `uv run mypy src tests`
+- Focused unit and API tests: `uv run pytest tests/unit tests/api`
+- Full backend tests: `uv run pytest`
+- Run migrations: `uv run alembic upgrade head`
+- Docker Compose startup: `docker compose up --build -d`
+- Docker Compose status: `docker compose ps`
+- Docker Compose logs: `docker compose logs --no-log-prefix api`
+- Docker Compose shutdown without deleting volumes: `docker compose down`
+- Full local smoke verification:
+  1. `uv sync --locked --all-groups`
+  2. `docker compose up --build -d`
+  3. `docker compose ps`
+  4. `Invoke-RestMethod http://localhost:8000/health`
+  5. `Invoke-RestMethod http://localhost:8000/ready`
+  6. `uv run pytest`
+  7. `docker compose down`
 
 ## Task Definition of Done
 

@@ -1,0 +1,108 @@
+name: Backend CI
+
+on:
+  push:
+    paths:
+      - ".github/workflows/backend-ci.yml"
+      - "AGENTS.md"
+      - ".env.example"
+      - ".gitignore"
+      - "compose.yaml"
+      - "backend/**"
+      - "docs/decisions/0003-backend-local-platform.md"
+      - "docs/milestones/milestone-02.md"
+      - "docs/milestones/roadmap.md"
+  pull_request:
+    paths:
+      - ".github/workflows/backend-ci.yml"
+      - "AGENTS.md"
+      - ".env.example"
+      - ".gitignore"
+      - "compose.yaml"
+      - "backend/**"
+      - "docs/decisions/0003-backend-local-platform.md"
+      - "docs/milestones/milestone-02.md"
+      - "docs/milestones/roadmap.md"
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.3-pg17-trixie
+        env:
+          POSTGRES_DB: contextos_ci
+          POSTGRES_USER: contextos
+          POSTGRES_PASSWORD: contextos-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U contextos -d contextos_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8.8.0-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CONTEXTOS_APPLICATION_NAME: contextos-api
+      CONTEXTOS_APPLICATION_VERSION: 0.1.0
+      CONTEXTOS_ENVIRONMENT: test
+      CONTEXTOS_LOG_LEVEL: INFO
+      CONTEXTOS_LOG_FORMAT: json
+      CONTEXTOS_READINESS_TIMEOUT_SECONDS: 3
+      CONTEXTOS_DATABASE_URL: postgresql+asyncpg://contextos:contextos-ci-password@127.0.0.1:5432/contextos_ci
+      CONTEXTOS_REDIS_URL: redis://127.0.0.1:6379/0
+      POSTGRES_DB: contextos_ci
+      POSTGRES_USER: contextos
+      POSTGRES_PASSWORD: contextos-ci-password
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Install uv
+        run: python -m pip install uv==0.11.25
+
+      - name: Check lockfile
+        run: uv lock --check
+
+      - name: Sync dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Run Alembic migrations
+        run: uv run alembic upgrade head
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Run mypy
+        run: uv run mypy src tests
+
+      - name: Run pytest
+        run: uv run pytest
+
+      - name: Validate Compose config
+        working-directory: .
+        run: docker compose config
+
+      - name: Build backend image
+        working-directory: .
+        run: docker build -f backend/Dockerfile -t contextos-backend-ci backend

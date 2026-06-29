@@ -2,114 +2,74 @@
 
 ## 1. Product and architecture foundation
 
+- Status: approved.
+- Absorbs original milestones: 1.
 - Goal: establish the documentation baseline, product boundaries, security invariants, and approved technical direction.
-- Completion gate: canonical product, architecture, security, ADR, and roadmap documents are in place and internally consistent.
-- Major dependency: none.
+- Security review gate: architecture and security invariants must be approved before any implementation milestone begins.
 
-## 2. Backend foundation and local development environment
+## 2. Backend and local platform foundation
 
-- Goal: create the backend project skeleton and local development setup.
-- Completion gate: the backend runs locally with its initial structure and developer workflow.
-- Major dependency: approved technology direction from Milestone 1.
+- Status: implementation approved to start; not a later feature milestone.
+- Absorbs original milestones: 2.
+- Goal: create the typed backend foundation, local infrastructure, migrations, CI workflow, and reproducible developer platform.
+- Security review gate: infrastructure, logging, readiness, and migration behavior must be reviewed before authentication or tenant-owned data models begin.
 
 ## 3. Frontend experience design
 
-- Goal: define the initial user experience and visual direction.
-- Completion gate: the frontend design system and primary user flows are documented and ready for implementation.
-- Major dependency: product scope from Milestone 1.
+- Absorbs original milestones: 3.
+- Goal: define the initial user experience and visual direction before frontend implementation.
+- Security review gate: none beyond existing product and architecture constraints because this remains a design milestone.
 
-## 4. Authentication, invitations, and user isolation
+## 4. Authentication, invitations, and tenant isolation
 
+- Absorbs original milestones: 4.
 - Goal: implement identity, invitation flow, and tenant isolation controls.
-- Completion gate: invited users can authenticate and access only their own data.
-- Major dependency: backend foundation and tenant isolation strategy.
+- Security review gate: adversarial authorization and cross-tenant access tests are required before proceeding.
 
-## 5. Workspaces, document metadata, private storage, and quotas
+## 5. Workspaces, private storage, quotas, and background PDF ingestion
 
-- Goal: establish user-owned document records, private storage, and quota enforcement.
-- Completion gate: document metadata, private storage, and quota rules work together safely.
-- Major dependency: authentication and backend foundations.
+- Absorbs original milestones: 5 and 6.
+- Goal: establish user-owned records, private storage, quota enforcement, and bounded ingestion workers for PDFs.
+- Security review gate: ownership, storage authorization, worker eligibility checks, and quota safety must pass before retrieval work begins.
 
-## 6. Background PDF ingestion
+## 6. Chunking, embeddings, hybrid retrieval, citation-backed chat, and persistent conversations
 
-- Goal: process uploaded PDFs asynchronously and safely.
-- Completion gate: PDF ingestion runs through a bounded background workflow with ownership checks.
-- Major dependency: private storage, quotas, and worker infrastructure.
+- Absorbs original milestones: 7, 8, and 9.
+- Goal: build authorized retrieval, grounded chat, and conversation persistence without introducing long-term memory yet.
+- Security review gate: retrieval authorization, citation grounding, and conversation access controls must be reviewed before memory is introduced.
 
-## 7. Chunking, embeddings, and hybrid retrieval
+## 7. Memory approval, conflict handling, retrieval, and combined context
 
-- Goal: prepare document text for retrieval and support hybrid search.
-- Completion gate: document chunks and retrieval indexes are available for authorized queries.
-- Major dependency: ingestion pipeline and data foundation.
+- Absorbs original milestones: 10, 11, and 12.
+- Goal: implement user-approved memory, conflict handling, memory retrieval, and combined context assembly with provenance.
+- Security review gate: approved-memory-only behavior and deletion/supersession exclusion rules must be verified before export and deletion controls.
 
-## 8. Citation-backed document chat
+## 8. User data controls, administrator controls, export, and verified deletion
 
-- Goal: answer questions with evidence from user documents.
-- Completion gate: chat responses include grounded citations from authorized document evidence.
-- Major dependency: chunking, embeddings, and retrieval.
+- Absorbs original milestones: 13 and 14.
+- Goal: provide user export/deletion workflows and permission-checked administrative controls with auditability.
+- Security review gate: verified deletion, administrative auditability, and cross-user isolation tests must pass before hardening.
 
-## 9. Persistent conversations and summaries
+## 9. Evaluation harness and security hardening
 
-- Goal: store conversation history and derived summaries for continuity.
-- Completion gate: conversations persist across sessions and can be summarized safely.
-- Major dependency: authenticated chat and backend state.
+- Absorbs original milestones: 15 and 16.
+- Goal: measure grounded behavior and reinforce security-sensitive controls across the implementation.
+- Security review gate: evaluation and hardening outputs must be reviewed before deployment work.
 
-## 10. Memory model and approval workflow
+## 10. Deployment and observability
 
-- Goal: define user-controlled long-term memory with explicit approval.
-- Completion gate: memory candidates can be reviewed and approved before use.
-- Major dependency: persistent conversations and product memory rules.
+- Absorbs original milestones: 17.
+- Goal: make the system operational in approved environments with visible telemetry and deployment procedures.
+- Security review gate: deployment configuration, secret handling, and operational monitoring must be reviewed before beta testing.
 
-## 11. Memory extraction, conflict handling, and retrieval
+## 11. Private beta testing and remediation
 
-- Goal: extract memory candidates and manage conflicts and supersession.
-- Completion gate: memory extraction is governed, reviewable, and retrieval-safe.
-- Major dependency: memory model and approval workflow.
+- Absorbs original milestones: 18.
+- Goal: run the invite-only beta, collect issues, and remediate approved findings.
+- Security review gate: beta access boundaries and remediation tracking must remain in place throughout testing.
 
-## 12. Combined context and provenance
+## 12. Documentation, case study, and release packaging
 
-- Goal: assemble conversation, memory, and document evidence into traceable answer context.
-- Completion gate: answer context remains provenance-aware and source types stay distinguishable.
-- Major dependency: retrieval, chat, and memory milestones.
-
-## 13. User data controls, export, and deletion
-
-- Goal: provide user-facing export and deletion controls.
-- Completion gate: export and deletion workflows are complete and verified.
-- Major dependency: ownership, storage, chat, and memory foundations.
-
-## 14. Administrator and invitation controls
-
-- Goal: add explicit administrative controls for invitations and user management.
-- Completion gate: administrative actions are permission-checked and audited.
-- Major dependency: authentication and tenant isolation.
-
-## 15. Evaluation harness
-
-- Goal: measure behavior, grounding, and security-sensitive outcomes.
-- Completion gate: repeatable evaluation exists for the approved product behaviors.
-- Major dependency: retrieval, chat, and memory features.
-
-## 16. Security hardening
-
-- Goal: reinforce the system with additional defensive controls and checks.
-- Completion gate: major security invariants are verified across the implementation.
-- Major dependency: core product and infrastructure features.
-
-## 17. Deployment and observability
-
-- Goal: make the system operational in the approved environments with visible telemetry.
-- Completion gate: deployment paths and observability are documented and functioning.
-- Major dependency: backend, frontend, and infrastructure foundations.
-
-## 18. Private beta testing
-
-- Goal: run the invite-only beta with real users and controlled feedback.
-- Completion gate: beta usage is monitored and reviewed against the approved limits.
-- Major dependency: deployment, security, and product readiness.
-
-## 19. Documentation, case study, and release packaging
-
-- Goal: package the project narrative, documentation, and public-facing summary.
-- Completion gate: documentation is complete enough to explain the product, architecture, and learnings.
-- Major dependency: the preceding milestones and validated implementation experience.
+- Absorbs original milestones: 19.
+- Goal: finalize documentation, project narrative, and release packaging after validated implementation experience.
+- Security review gate: documentation must not expose secrets, private data, or unsupported claims.

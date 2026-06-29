@@ -33,6 +33,7 @@ coverage/
 
 # Test and coverage artifacts
 .coverage
+.coverage.*
 htmlcov/
 
 # Local Supabase state and temporary data
@@ -45,3 +46,7 @@ data/
 # Logs
 *.log
 logs/
+
+# Backend packaging artifacts
+backend/.venv/
+backend/.python-version

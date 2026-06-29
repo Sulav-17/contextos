@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.3-pg17-trixie
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  redis:
+    image: redis:8.8.0-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      CONTEXTOS_APPLICATION_NAME: ${CONTEXTOS_APPLICATION_NAME:-contextos-api}
+      CONTEXTOS_APPLICATION_VERSION: ${CONTEXTOS_APPLICATION_VERSION:-0.1.0}
+      CONTEXTOS_ENVIRONMENT: ${CONTEXTOS_ENVIRONMENT:-local}
+      CONTEXTOS_LOG_LEVEL: ${CONTEXTOS_LOG_LEVEL:-INFO}
+      CONTEXTOS_LOG_FORMAT: ${CONTEXTOS_LOG_FORMAT:-json}
+      CONTEXTOS_READINESS_TIMEOUT_SECONDS: ${CONTEXTOS_READINESS_TIMEOUT_SECONDS:-3}
+      CONTEXTOS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CONTEXTOS_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["/app/.venv/bin/alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      CONTEXTOS_APPLICATION_NAME: ${CONTEXTOS_APPLICATION_NAME:-contextos-api}
+      CONTEXTOS_APPLICATION_VERSION: ${CONTEXTOS_APPLICATION_VERSION:-0.1.0}
+      CONTEXTOS_ENVIRONMENT: ${CONTEXTOS_ENVIRONMENT:-local}
+      CONTEXTOS_LOG_LEVEL: ${CONTEXTOS_LOG_LEVEL:-INFO}
+      CONTEXTOS_LOG_FORMAT: ${CONTEXTOS_LOG_FORMAT:-json}
+      CONTEXTOS_READINESS_TIMEOUT_SECONDS: ${CONTEXTOS_READINESS_TIMEOUT_SECONDS:-3}
+      CONTEXTOS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CONTEXTOS_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  redis_data:
