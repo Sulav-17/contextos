@@ -79,6 +79,14 @@ services:
       CONTEXTOS_SUPABASE_SECRET_KEY: ${CONTEXTOS_SUPABASE_SECRET_KEY:-}
       CONTEXTOS_FRONTEND_URL: ${CONTEXTOS_FRONTEND_URL:-http://localhost:3000}
       CONTEXTOS_BETA_MAX_USERS: ${CONTEXTOS_BETA_MAX_USERS:-3}
+      CONTEXTOS_DOCUMENT_STORAGE_ROOT: /var/lib/contextos/private-documents
+      CONTEXTOS_DOCUMENT_MAX_PER_USER: ${CONTEXTOS_DOCUMENT_MAX_PER_USER:-10}
+      CONTEXTOS_DOCUMENT_MAX_PDF_SIZE_BYTES: ${CONTEXTOS_DOCUMENT_MAX_PDF_SIZE_BYTES:-10485760}
+      CONTEXTOS_DOCUMENT_MAX_TOTAL_SIZE_BYTES: ${CONTEXTOS_DOCUMENT_MAX_TOTAL_SIZE_BYTES:-52428800}
+      CONTEXTOS_DOCUMENT_MAX_PAGES: ${CONTEXTOS_DOCUMENT_MAX_PAGES:-100}
+      CONTEXTOS_DOCUMENT_CHUNK_SIZE: ${CONTEXTOS_DOCUMENT_CHUNK_SIZE:-1800}
+      CONTEXTOS_DOCUMENT_CHUNK_OVERLAP: ${CONTEXTOS_DOCUMENT_CHUNK_OVERLAP:-200}
+      CONTEXTOS_DOCUMENT_QUEUE_NAME: ${CONTEXTOS_DOCUMENT_QUEUE_NAME:-contextos-ingestion}
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,6 +96,8 @@ services:
         condition: service_completed_successfully
     ports:
       - "8000:8000"
+    volumes:
+      - document_storage:/var/lib/contextos/private-documents
     healthcheck:
       test:
         [
@@ -101,11 +111,41 @@ services:
       retries: 12
       start_period: 10s
 
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["/app/.venv/bin/python", "-m", "contextos.worker"]
+    environment:
+      CONTEXTOS_APPLICATION_NAME: ${CONTEXTOS_APPLICATION_NAME:-contextos-api}
+      CONTEXTOS_APPLICATION_VERSION: ${CONTEXTOS_APPLICATION_VERSION:-0.1.0}
+      CONTEXTOS_ENVIRONMENT: ${CONTEXTOS_ENVIRONMENT:-local}
+      CONTEXTOS_LOG_LEVEL: ${CONTEXTOS_LOG_LEVEL:-INFO}
+      CONTEXTOS_LOG_FORMAT: ${CONTEXTOS_LOG_FORMAT:-json}
+      CONTEXTOS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CONTEXTOS_REDIS_URL: redis://redis:6379/0
+      CONTEXTOS_DOCUMENT_STORAGE_ROOT: /var/lib/contextos/private-documents
+      CONTEXTOS_DOCUMENT_MAX_PAGES: ${CONTEXTOS_DOCUMENT_MAX_PAGES:-100}
+      CONTEXTOS_DOCUMENT_CHUNK_SIZE: ${CONTEXTOS_DOCUMENT_CHUNK_SIZE:-1800}
+      CONTEXTOS_DOCUMENT_CHUNK_OVERLAP: ${CONTEXTOS_DOCUMENT_CHUNK_OVERLAP:-200}
+      CONTEXTOS_DOCUMENT_QUEUE_NAME: ${CONTEXTOS_DOCUMENT_QUEUE_NAME:-contextos-ingestion}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - document_storage:/var/lib/contextos/private-documents
+
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000	
       CONTEXTOS_API_URL: http://api:8000
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://localhost:54321}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-local-publishable-key}
@@ -131,3 +171,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  document_storage:

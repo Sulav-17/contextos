@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     supabase_secret_key: SecretStr | None = Field(default=None, repr=False)
     frontend_url: str = "http://localhost:3000"
     beta_max_users: int = Field(default=3, gt=0, le=3)
+    document_storage_root: Path = Path("data/private-documents")
+    document_max_per_user: int = Field(default=10, gt=0, le=100)
+    document_max_pdf_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    document_max_total_size_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
+    document_max_pages: int = Field(default=100, gt=0, le=1000)
+    document_chunk_size: int = Field(default=1800, gt=100, le=10000)
+    document_chunk_overlap: int = Field(default=200, ge=0, le=2000)
+    document_queue_name: str = "contextos-ingestion"
 
     @field_validator("log_level", mode="before")
     @classmethod

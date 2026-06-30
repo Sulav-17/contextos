@@ -42,6 +42,7 @@ tmp/
 temp/
 uploads/
 data/
+private-documents/
 
 # Logs
 *.log

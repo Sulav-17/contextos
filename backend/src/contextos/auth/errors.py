@@ -57,3 +57,38 @@ VALIDATION_FAILED = ApiErrorSpec(
     message="The request body is invalid.",
     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
 )
+DOCUMENT_NOT_FOUND = ApiErrorSpec(
+    code="document_not_found",
+    message="Document not found.",
+    status_code=status.HTTP_404_NOT_FOUND,
+)
+DOCUMENT_LIMIT_REACHED = ApiErrorSpec(
+    code="document_limit_reached",
+    message="Document limit reached.",
+    status_code=status.HTTP_409_CONFLICT,
+)
+DOCUMENT_STORAGE_LIMIT_REACHED = ApiErrorSpec(
+    code="document_storage_limit_reached",
+    message="Document storage limit reached.",
+    status_code=status.HTTP_409_CONFLICT,
+)
+DOCUMENT_INVALID_FILE = ApiErrorSpec(
+    code="document_invalid_file",
+    message="Upload a valid PDF file.",
+    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+)
+DOCUMENT_TOO_LARGE = ApiErrorSpec(
+    code="document_too_large",
+    message="PDF exceeds the configured size limit.",
+    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+)
+DOCUMENT_TOO_MANY_PAGES = ApiErrorSpec(
+    code="document_too_many_pages",
+    message="PDF exceeds the configured page limit.",
+    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+)
+DOCUMENT_NOT_RETRYABLE = ApiErrorSpec(
+    code="document_not_retryable",
+    message="Only failed documents can be retried.",
+    status_code=status.HTTP_409_CONFLICT,
+)

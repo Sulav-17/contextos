@@ -11,7 +11,9 @@ WORKDIR /app
 
 COPY --from=uv /uv /usr/local/bin/uv
 
-RUN addgroup --system app && adduser --system --ingroup app app
+RUN addgroup --system app && adduser --system --ingroup app app \
+    && mkdir -p /var/lib/contextos/private-documents \
+    && chown -R app:app /var/lib/contextos
 
 COPY pyproject.toml uv.lock .python-version alembic.ini ./
 COPY alembic ./alembic

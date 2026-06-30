@@ -34,3 +34,25 @@ export type InvitationList = {
   occupied_slots: number;
   invitations: Invitation[];
 };
+
+export type DocumentStatus = "uploaded" | "queued" | "processing" | "ready" | "failed" | "deleted";
+
+export type DocumentMetadata = {
+  id: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  checksum_sha256: string | null;
+  status: DocumentStatus;
+  page_count: number | null;
+  extracted_character_count: number | null;
+  failure_code: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  processed_at: string | null;
+};
+
+export type DocumentList = {
+  documents: DocumentMetadata[];
+};

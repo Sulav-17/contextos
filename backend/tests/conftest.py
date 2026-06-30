@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 
 from contextos.core.config import Settings, reset_settings_cache
+
+ROOT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+BACKEND_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+
+load_dotenv(ROOT_ENV_FILE, override=False)
+load_dotenv(BACKEND_ENV_FILE, override=False)
 
 
 @pytest.fixture(autouse=True)

@@ -15,6 +15,7 @@ from contextos.auth.errors import (
 )
 from contextos.auth.jwt import AuthenticationError, AuthProvider
 from contextos.auth.principal import ApplicationUser, Principal
+from contextos.core.config import Settings
 from contextos.domain.users import (
     activate_invited_user,
     get_application_user,
@@ -30,6 +31,7 @@ class AuthContext:
     session: AsyncSession
     principal: Principal
     user: ApplicationUser
+    settings: Settings
 
 
 async def authenticated_context(request: Request) -> AsyncIterator[AuthContext]:
@@ -62,7 +64,12 @@ async def authenticated_context(request: Request) -> AsyncIterator[AuthContext]:
                 user = await activate_invited_user(session, principal.subject) or user
             await set_tenant_context(session, principal.subject, user.role)
             await record_login(session, principal.subject)
-            yield AuthContext(session=session, principal=principal, user=user)
+            yield AuthContext(
+                session=session,
+                principal=principal,
+                user=user,
+                settings=request.app.state.settings,
+            )
 
 
 AUTHENTICATED_CONTEXT = Depends(authenticated_context)

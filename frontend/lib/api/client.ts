@@ -14,6 +14,13 @@ export type ApiErrorCode =
   | "beta_capacity_reached"
   | "provider_unavailable"
   | "validation_failed"
+  | "document_not_found"
+  | "document_limit_reached"
+  | "document_storage_limit_reached"
+  | "document_invalid_file"
+  | "document_too_large"
+  | "document_too_many_pages"
+  | "document_not_retryable"
   | "backend_unavailable";
 
 export class ApiClientError extends Error {
@@ -53,7 +60,7 @@ export async function apiFetch<T>(
       ...init,
       headers: {
         Accept: "application/json",
-        "Content-Type": "application/json",
+        ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
         "X-Request-ID": randomUUID(),
         ...init.headers,
         Authorization: `Bearer ${token}`,
@@ -73,6 +80,9 @@ export async function apiFetch<T>(
         payload.error?.message ?? "ContextOS is unavailable.",
         response.status,
       );
+    }
+    if (response.status === 204) {
+      return undefined as T;
     }
     return (await response.json()) as T;
   } catch (error) {
