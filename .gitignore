@@ -50,3 +50,8 @@ logs/
 # Backend packaging artifacts
 backend/.venv/
 backend/.python-version
+AGENTS.md
+**/AGENTS.md
+docs/milestones/
+docs/planning/
+docs/roadmap/

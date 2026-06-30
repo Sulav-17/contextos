@@ -24,7 +24,7 @@ def test_settings_require_connection_urls(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.delenv("CONTEXTOS_DATABASE_URL", raising=False)
     monkeypatch.delenv("CONTEXTOS_REDIS_URL", raising=False)
     with pytest.raises(ValidationError):
-        Settings()
+        Settings(_env_file=None)
 
 
 @pytest.mark.parametrize(

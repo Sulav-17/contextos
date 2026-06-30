@@ -25,7 +25,10 @@ BACKEND_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(ROOT_ENV_FILE, override=False)
 load_dotenv(BACKEND_ENV_FILE, override=False)
 
-database_url = os.getenv("CONTEXTOS_DATABASE_URL", "").strip()
+database_url = (
+    os.getenv("CONTEXTOS_MIGRATION_DATABASE_URL", "").strip()
+    or os.getenv("CONTEXTOS_DATABASE_URL", "").strip()
+)
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 

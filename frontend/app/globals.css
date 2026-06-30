@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+:root {
+  --surface-base: #050912;
+  --surface-raised: #0b1220;
+  --surface-overlay: #101827;
+  --surface-inspector: #090f1c;
+  --text-primary: #f3f7fb;
+  --text-secondary: #b7c4d4;
+  --text-muted: #8190a4;
+  --accent-intelligence: #50d9f6;
+  --accent-memory: #d7b16a;
+  --accent-document: #73a7ff;
+  --accent-project: #9d9bff;
+  --status-success: #7bd88f;
+  --status-warning: #f2c76e;
+  --status-danger: #ff8b8b;
+  --border-subtle: rgba(183, 196, 212, 0.16);
+  --border-strong: rgba(80, 217, 246, 0.66);
+  --focus-ring: #f8d987;
+  --shadow-soft: 0 18px 50px rgba(0, 0, 0, 0.24);
+  --shadow-panel: 0 22px 70px rgba(0, 0, 0, 0.34);
+  --line-context: rgba(80, 217, 246, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--surface-base);
+  color: var(--text-primary);
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  font-family: "Aptos", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(80, 217, 246, 0.12), transparent 30rem),
+    radial-gradient(circle at 72% 8%, rgba(157, 155, 255, 0.12), transparent 26rem),
+    var(--surface-base);
+  color: var(--text-primary);
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  z-index: 100;
+  transform: translateY(-140%);
+  border-radius: 0.75rem;
+  background: var(--focus-ring);
+  color: #15100a;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.quiet-panel {
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.orb-motion {
+  animation: orbit-breathe 4s ease-in-out infinite;
+}
+
+@keyframes orbit-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -6,10 +6,13 @@ from typing import Protocol
 
 from fastapi import FastAPI
 
+from contextos.api.errors import ContextOSError, contextos_error_handler
 from contextos.api.router import api_router
+from contextos.auth.jwt import SupabaseJwtVerifier
 from contextos.core.config import Settings, get_settings
 from contextos.core.logging import configure_logging
 from contextos.core.request_id import RequestIdMiddleware
+from contextos.domain.invitations import DisabledInvitationProvider, SupabaseInvitationProvider
 from contextos.infrastructure.database import DatabaseResource
 from contextos.infrastructure.redis_client import RedisResource
 
@@ -22,10 +25,18 @@ class LifespanResource(Protocol):
 type ResourceFactory = Callable[[Settings], LifespanResource]
 
 
+def build_invitation_provider(settings: Settings) -> object:
+    if settings.supabase_secret_key is None:
+        return DisabledInvitationProvider()
+    return SupabaseInvitationProvider(settings)
+
+
 def create_app(
     settings: Settings | None = None,
     database_resource_factory: ResourceFactory = DatabaseResource,
     redis_resource_factory: ResourceFactory = RedisResource,
+    auth_provider_factory: Callable[[Settings], object] = SupabaseJwtVerifier,
+    invitation_provider_factory: Callable[[Settings], object] = build_invitation_provider,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     configure_logging(log_level=app_settings.log_level, log_format=app_settings.log_format)
@@ -37,6 +48,8 @@ def create_app(
         app.state.database = database
         app.state.redis = redis
         app.state.settings = app_settings
+        app.state.auth_provider = auth_provider_factory(app_settings)
+        app.state.invitation_provider = invitation_provider_factory(app_settings)
         await database.start()
         await redis.start()
         try:
@@ -52,6 +65,7 @@ def create_app(
     )
     app.state.settings = app_settings
     app.add_middleware(RequestIdMiddleware)
+    app.add_exception_handler(ContextOSError, contextos_error_handler)
     app.include_router(api_router)
     return app
 

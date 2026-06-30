@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.3-pg17-trixie
+        env:
+          POSTGRES_DB: contextos_test
+          POSTGRES_USER: contextos_migration
+          POSTGRES_PASSWORD: test-migration-password
+          POSTGRES_APP_USER: contextos_app
+          POSTGRES_APP_PASSWORD: test-runtime-password
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U contextos_migration -d contextos_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:8.8.0-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: backend/.python-version
+      - name: Install backend
+        working-directory: backend
+        run: uv sync --locked --all-groups
+      - name: Backend format
+        working-directory: backend
+        run: uv run ruff format --check .
+      - name: Backend lint
+        working-directory: backend
+        run: uv run ruff check .
+      - name: Backend typecheck
+        working-directory: backend
+        run: uv run mypy src tests
+      - name: Backend migrations
+        working-directory: backend
+        env:
+          CONTEXTOS_DATABASE_URL: postgresql+asyncpg://contextos_migration:test-migration-password@127.0.0.1:15432/contextos_test
+          CONTEXTOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://contextos_migration:test-migration-password@127.0.0.1:15432/contextos_test
+          POSTGRES_APP_USER: contextos_app
+        run: uv run alembic upgrade head
+      - name: Backend tests
+        working-directory: backend
+        env:
+          CONTEXTOS_DATABASE_URL: postgresql+asyncpg://contextos_app:test-runtime-password@127.0.0.1:15432/contextos_test
+          CONTEXTOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://contextos_migration:test-migration-password@127.0.0.1:15432/contextos_test
+          CONTEXTOS_REDIS_URL: redis://127.0.0.1:6379/0
+        run: uv run pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: corepack enable
+      - name: Install frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        working-directory: frontend
+        run: pnpm lint
+      - name: Typecheck
+        working-directory: frontend
+        run: pnpm typecheck
+      - name: Unit tests
+        working-directory: frontend
+        run: pnpm test
+      - name: Build
+        working-directory: frontend
+        run: pnpm build
+      - name: Secret scan
+        working-directory: frontend
+        run: pnpm secret-scan
+      - name: Public smoke tests
+        working-directory: frontend
+        run: pnpm test:e2e

@@ -3,8 +3,9 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AppEnvironment = Literal["local", "test", "staging", "production"]
@@ -29,8 +30,19 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: LogFormat = "console"
     database_url: SecretStr = Field(repr=False)
+    migration_database_url: SecretStr | None = Field(default=None, repr=False)
     redis_url: SecretStr = Field(repr=False)
     readiness_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
+    supabase_url: str = ""
+    supabase_jwt_issuer: str = ""
+    supabase_jwt_audience: str = "authenticated"
+    supabase_jwks_url: str = ""
+    supabase_allowed_jwt_algorithms: tuple[str, ...] = ("ES256", "RS256")
+    supabase_jwks_cache_ttl_seconds: int = Field(default=300, gt=0, le=3600)
+    supabase_jwt_clock_skew_seconds: int = Field(default=30, ge=0, le=120)
+    supabase_secret_key: SecretStr | None = Field(default=None, repr=False)
+    frontend_url: str = "http://localhost:3000"
+    beta_max_users: int = Field(default=3, gt=0, le=3)
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -48,6 +60,16 @@ class Settings(BaseSettings):
             raise ValueError("database_url must start with postgresql+asyncpg://")
         return value
 
+    @field_validator("migration_database_url")
+    @classmethod
+    def validate_migration_database_url(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return value
+        secret = value.get_secret_value()
+        if not secret.startswith("postgresql+asyncpg://"):
+            raise ValueError("migration_database_url must start with postgresql+asyncpg://")
+        return value
+
     @field_validator("redis_url")
     @classmethod
     def validate_redis_url(cls, value: SecretStr) -> SecretStr:
@@ -55,6 +77,39 @@ class Settings(BaseSettings):
         if not secret.startswith("redis://"):
             raise ValueError("redis_url must start with redis://")
         return value
+
+    @field_validator("supabase_allowed_jwt_algorithms", mode="before")
+    @classmethod
+    def validate_algorithms(cls, value: str | tuple[str, ...] | list[str]) -> tuple[str, ...]:
+        algorithms = (
+            tuple(part.strip().upper() for part in value.split(","))
+            if isinstance(value, str)
+            else tuple(value)
+        )
+        if not algorithms:
+            raise ValueError("at least one JWT algorithm must be allowed")
+        if any(algorithm.startswith("HS") for algorithm in algorithms):
+            raise ValueError("symmetric JWT algorithms are not allowed")
+        if not set(algorithms).issubset({"ES256", "RS256"}):
+            raise ValueError("allowed JWT algorithms must be ES256 or RS256")
+        return algorithms
+
+    @model_validator(mode="after")
+    def validate_auth_configuration(self) -> Settings:
+        if not self.supabase_jwks_url and self.supabase_url:
+            self.supabase_jwks_url = (
+                self.supabase_url.rstrip("/") + "/auth/v1/.well-known/jwks.json"
+            )
+
+        if self.environment == "production":
+            if not self.supabase_url or not self.supabase_jwt_issuer or not self.supabase_jwks_url:
+                raise ValueError("production requires Supabase URL, issuer, and JWKS URL")
+            issuer = urlparse(self.supabase_jwt_issuer)
+            if issuer.scheme != "https" or "*" in self.supabase_jwt_issuer:
+                raise ValueError("production JWT issuer must be an exact HTTPS URL")
+            if self.supabase_secret_key is None:
+                raise ValueError("production invitations require a Supabase server secret key")
+        return self
 
 
 @lru_cache(maxsize=1)
