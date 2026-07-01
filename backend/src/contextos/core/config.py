@@ -51,6 +51,19 @@ class Settings(BaseSettings):
     document_chunk_size: int = Field(default=1800, gt=100, le=10000)
     document_chunk_overlap: int = Field(default=200, ge=0, le=2000)
     document_queue_name: str = "contextos-ingestion"
+    llm_provider: Literal["fake", "gemini"] = "fake"
+    llm_model: str = "gemini-2.5-flash"
+    embedding_provider: Literal["fake", "gemini"] = "fake"
+    embedding_model: str = "text-embedding-004"
+    ai_provider_api_key: SecretStr | None = Field(default=None, repr=False)
+    ai_provider_timeout_seconds: float = Field(default=12.0, gt=0, le=60)
+    ai_provider_max_retries: int = Field(default=2, ge=0, le=5)
+    embedding_dimension: int = Field(default=768, gt=0, le=4096)
+    retrieval_top_k: int = Field(default=5, gt=0, le=20)
+    retrieval_similarity_threshold: float = Field(default=0.72, ge=0, le=1)
+    retrieval_max_context_characters: int = Field(default=9000, gt=1000, le=30000)
+    ai_daily_message_limit: int = Field(default=20, gt=0, le=10000)
+    ai_monthly_message_limit: int = Field(default=200, gt=0, le=100000)
 
     @field_validator("log_level", mode="before")
     @classmethod

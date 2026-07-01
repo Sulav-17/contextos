@@ -92,3 +92,23 @@ DOCUMENT_NOT_RETRYABLE = ApiErrorSpec(
     message="Only failed documents can be retried.",
     status_code=status.HTTP_409_CONFLICT,
 )
+CONVERSATION_NOT_FOUND = ApiErrorSpec(
+    code="conversation_not_found",
+    message="Conversation not found.",
+    status_code=status.HTTP_404_NOT_FOUND,
+)
+AI_DAILY_LIMIT_REACHED = ApiErrorSpec(
+    code="daily_ai_message_limit_reached",
+    message="Daily AI message limit reached.",
+    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+)
+AI_MONTHLY_LIMIT_REACHED = ApiErrorSpec(
+    code="monthly_ai_message_limit_reached",
+    message="Monthly AI message limit reached.",
+    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+)
+AI_PROVIDER_UNAVAILABLE = ApiErrorSpec(
+    code="ai_provider_unavailable",
+    message="The AI provider is temporarily unavailable.",
+    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+)

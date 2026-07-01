@@ -12,11 +12,15 @@ from rq import Queue
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from contextos.core.config import Settings, get_settings
+from contextos.domain.ai import ProviderError, build_embedding_provider
 from contextos.domain.documents import (
     get_document_for_worker,
+    list_chunks_needing_embeddings,
     mark_failed,
     mark_processing,
-    replace_chunks_and_mark_ready,
+    mark_ready,
+    replace_chunks,
+    store_chunk_embeddings,
 )
 from contextos.infrastructure.document_storage import LocalDocumentStorage
 from contextos.infrastructure.tenant_context import set_tenant_context
@@ -157,7 +161,7 @@ async def process_document(document_id: UUID, settings: Settings) -> None:
         async with factory() as session:
             async with session.begin():
                 await set_tenant_context(session, document_id, "worker")
-                await replace_chunks_and_mark_ready(
+                await replace_chunks(
                     session,
                     document_id=document_id,
                     user_id=document.user_id,
@@ -165,6 +169,49 @@ async def process_document(document_id: UUID, settings: Settings) -> None:
                     page_count=page_count,
                     extracted_character_count=character_count,
                 )
+
+        embedding_provider = build_embedding_provider(settings)
+        try:
+            async with factory() as session:
+                async with session.begin():
+                    await set_tenant_context(session, document_id, "worker")
+                    chunks_to_embed = await list_chunks_needing_embeddings(
+                        session,
+                        document_id=document_id,
+                        embedding_provider=embedding_provider.provider,
+                        embedding_model=embedding_provider.model,
+                        embedding_dimension=embedding_provider.dimension,
+                    )
+            for start in range(0, len(chunks_to_embed), 16):
+                batch = chunks_to_embed[start : start + 16]
+                vectors = await embedding_provider.embed([content for _, content in batch])
+                async with factory() as session:
+                    async with session.begin():
+                        await set_tenant_context(session, document_id, "worker")
+                        await store_chunk_embeddings(
+                            session,
+                            embeddings=[
+                                (chunk_id, vector)
+                                for (chunk_id, _content), vector in zip(batch, vectors, strict=True)
+                            ],
+                            embedding_provider=embedding_provider.provider,
+                            embedding_model=embedding_provider.model,
+                            embedding_dimension=embedding_provider.dimension,
+                        )
+            async with factory() as session:
+                async with session.begin():
+                    await set_tenant_context(session, document_id, "worker")
+                    await mark_ready(session, document_id)
+        except ProviderError:
+            async with factory() as session:
+                async with session.begin():
+                    await set_tenant_context(session, document_id, "worker")
+                    await mark_failed(
+                        session,
+                        document_id=document_id,
+                        failure_code="embedding_failed",
+                        failure_reason="Document text could not be embedded.",
+                    )
     finally:
         await engine.dispose()
 

@@ -56,3 +56,52 @@ export type DocumentMetadata = {
 export type DocumentList = {
   documents: DocumentMetadata[];
 };
+
+export type UsageBucket = {
+  used: number;
+  limit: number;
+  remaining: number;
+};
+
+export type UsageStatus = {
+  daily: UsageBucket;
+  monthly: UsageBucket;
+};
+
+export type ConversationSummary = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Citation = {
+  citation_index: number;
+  document_id: string;
+  document_name: string;
+  page_number: number;
+  excerpt: string;
+};
+
+export type ConversationMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  status: string;
+  created_at: string;
+  citations: Citation[];
+};
+
+export type ConversationList = {
+  conversations: ConversationSummary[];
+};
+
+export type ConversationDetail = ConversationSummary & {
+  messages: ConversationMessage[];
+};
+
+export type MessageCreateResponse = {
+  message: ConversationMessage;
+  usage: UsageStatus;
+  evidence_status: "grounded" | "insufficient_evidence";
+};

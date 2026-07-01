@@ -21,6 +21,10 @@ export type ApiErrorCode =
   | "document_too_large"
   | "document_too_many_pages"
   | "document_not_retryable"
+  | "conversation_not_found"
+  | "daily_ai_message_limit_reached"
+  | "monthly_ai_message_limit_reached"
+  | "ai_provider_unavailable"
   | "backend_unavailable";
 
 export class ApiClientError extends Error {

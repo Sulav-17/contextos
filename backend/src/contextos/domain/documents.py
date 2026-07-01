@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -223,7 +224,7 @@ async def mark_processing(session: AsyncSession, document_id: UUID) -> bool:
     return cast(CursorResult[object], result).rowcount == 1
 
 
-async def replace_chunks_and_mark_ready(
+async def replace_chunks(
     session: AsyncSession,
     *,
     document_id: UUID,
@@ -243,11 +244,11 @@ async def replace_chunks_and_mark_ready(
                 """
                 INSERT INTO document_chunks (
                   document_id, user_id, chunk_index, page_number, content,
-                  character_count, created_at
+                  character_count, content_sha256, created_at
                 )
                 VALUES (
                   :document_id, :user_id, :chunk_index, :page_number, :content,
-                  :character_count, :now
+                  :character_count, :content_sha256, :now
                 )
                 """
             ),
@@ -258,6 +259,7 @@ async def replace_chunks_and_mark_ready(
                 "page_number": page_number,
                 "content": content,
                 "character_count": len(content),
+                "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
                 "now": now,
             },
         )
@@ -265,7 +267,7 @@ async def replace_chunks_and_mark_ready(
         text(
             """
             UPDATE documents
-            SET status = 'ready',
+            SET status = 'processing',
                 page_count = :page_count,
                 extracted_character_count = :extracted_character_count,
                 failure_code = NULL,
@@ -281,6 +283,93 @@ async def replace_chunks_and_mark_ready(
             "extracted_character_count": extracted_character_count,
             "now": now,
         },
+    )
+
+
+async def list_chunks_needing_embeddings(
+    session: AsyncSession,
+    *,
+    document_id: UUID,
+    embedding_provider: str,
+    embedding_model: str,
+    embedding_dimension: int,
+) -> list[tuple[UUID, str]]:
+    result = await session.execute(
+        text(
+            """
+            SELECT id, content
+            FROM document_chunks
+            WHERE document_id = :document_id
+              AND (
+                embedding IS NULL
+                OR embedding_provider IS DISTINCT FROM :embedding_provider
+                OR embedding_model IS DISTINCT FROM :embedding_model
+                OR embedding_dimension IS DISTINCT FROM :embedding_dimension
+              )
+            ORDER BY chunk_index
+            """
+        ),
+        {
+            "document_id": str(document_id),
+            "embedding_provider": embedding_provider,
+            "embedding_model": embedding_model,
+            "embedding_dimension": embedding_dimension,
+        },
+    )
+    return [(row["id"], row["content"]) for row in result.mappings()]
+
+
+def embedding_literal(values: list[float]) -> str:
+    return "[" + ",".join(f"{value:.8f}" for value in values) + "]"
+
+
+async def store_chunk_embeddings(
+    session: AsyncSession,
+    *,
+    embeddings: list[tuple[UUID, list[float]]],
+    embedding_provider: str,
+    embedding_model: str,
+    embedding_dimension: int,
+) -> None:
+    now = datetime.now(UTC)
+    for chunk_id, embedding in embeddings:
+        await session.execute(
+            text(
+                """
+                UPDATE document_chunks
+                SET embedding = CAST(:embedding AS vector),
+                    embedding_provider = :embedding_provider,
+                    embedding_model = :embedding_model,
+                    embedding_dimension = :embedding_dimension,
+                    embedding_created_at = :now
+                WHERE id = :chunk_id
+                """
+            ),
+            {
+                "chunk_id": str(chunk_id),
+                "embedding": embedding_literal(embedding),
+                "embedding_provider": embedding_provider,
+                "embedding_model": embedding_model,
+                "embedding_dimension": embedding_dimension,
+                "now": now,
+            },
+        )
+
+
+async def mark_ready(session: AsyncSession, document_id: UUID) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE documents
+            SET status = 'ready',
+                failure_code = NULL,
+                failure_reason = NULL,
+                processed_at = :now,
+                updated_at = :now
+            WHERE id = :document_id AND deleted_at IS NULL
+            """
+        ),
+        {"document_id": str(document_id), "now": datetime.now(UTC)},
     )
 
 
