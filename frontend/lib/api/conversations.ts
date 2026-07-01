@@ -35,6 +35,16 @@ export function submitQuestion(
   });
 }
 
+export function updateConversationTitle(
+  conversationId: string,
+  title: string,
+): Promise<ConversationSummary> {
+  return apiFetch<ConversationSummary>(`/api/v1/conversations/${conversationId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+}
+
 export function deleteConversation(conversationId: string): Promise<void> {
   return apiFetch<void>(`/api/v1/conversations/${conversationId}`, {
     method: "DELETE",

@@ -20,6 +20,7 @@ from contextos.domain.chat import (
     ConversationDetailResponse,
     ConversationListResponse,
     ConversationSummary,
+    ConversationUpdateRequest,
     MessageCreateRequest,
     MessageCreateResponse,
     UsageResponse,
@@ -28,6 +29,7 @@ from contextos.domain.chat import (
     get_conversation_detail,
     list_conversations,
     submit_question,
+    update_conversation_title,
     usage_status,
 )
 
@@ -64,6 +66,25 @@ async def get_conversation_route(
     response.headers["Cache-Control"] = "private, no-store"
     conversation = await get_conversation_detail(
         context.session, user_id=context.user.id, conversation_id=conversation_id
+    )
+    if conversation is None:
+        raise ContextOSError(CONVERSATION_NOT_FOUND)
+    return conversation
+
+
+@router.patch("/api/v1/conversations/{conversation_id}", response_model=ConversationSummary)
+async def update_conversation_route(
+    conversation_id: UUID,
+    request: ConversationUpdateRequest,
+    response: Response,
+    context: AuthContext = AUTH_CONTEXT,
+) -> ConversationSummary:
+    response.headers["Cache-Control"] = "private, no-store"
+    conversation = await update_conversation_title(
+        context.session,
+        user_id=context.user.id,
+        conversation_id=conversation_id,
+        title=request.title,
     )
     if conversation is None:
         raise ContextOSError(CONVERSATION_NOT_FOUND)

@@ -1,6 +1,6 @@
 export type GreetingMode = "full" | "minimized" | "direct";
 export type MotionMode = "system" | "reduced";
-export type ThemeMode = "dark" | "system";
+export type ThemeMode = "dark" | "light" | "system";
 
 export type Me = {
   id: string;
@@ -98,6 +98,7 @@ export type ConversationList = {
 
 export type ConversationDetail = ConversationSummary & {
   messages: ConversationMessage[];
+  selected_document_ids: string[];
 };
 
 export type MessageCreateResponse = {

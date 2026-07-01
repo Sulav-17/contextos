@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Literal, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contextos.core.config import Settings
 from contextos.domain.ai import (
     ChatRequest,
-    ProviderError,
     build_chat_provider,
     build_embedding_provider,
 )
@@ -21,10 +20,31 @@ from contextos.domain.ai import (
 MessageRole = Literal["user", "assistant"]
 EvidenceStatus = Literal["grounded", "insufficient_evidence"]
 FALLBACK_ANSWER = "I could not find enough evidence in your documents to answer that."
+DEFAULT_CONVERSATION_TITLE = "New conversation"
+MAX_CONVERSATION_TITLE_LENGTH = 120
+AUTO_TITLE_LENGTH = 60
 
 
 class ConversationCreateRequest(BaseModel):
-    title: str = Field(default="New conversation", min_length=1, max_length=120)
+    title: str = Field(
+        default=DEFAULT_CONVERSATION_TITLE,
+        min_length=1,
+        max_length=MAX_CONVERSATION_TITLE_LENGTH,
+    )
+
+
+class ConversationUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=MAX_CONVERSATION_TITLE_LENGTH)
+
+    @field_validator("title")
+    @classmethod
+    def title_must_not_be_blank(cls, value: str) -> str:
+        normalized = normalize_conversation_title(value)
+        if not normalized:
+            raise ValueError("title must not be blank")
+        return normalized
 
 
 class ConversationSummary(BaseModel):
@@ -57,6 +77,7 @@ class MessageResponse(BaseModel):
 
 class ConversationDetailResponse(ConversationSummary):
     messages: list[MessageResponse]
+    selected_document_ids: list[UUID] = Field(default_factory=list)
 
 
 class MessageCreateRequest(BaseModel):
@@ -122,9 +143,35 @@ async def create_conversation(
             RETURNING id, title, created_at, updated_at
             """
         ),
-        {"user_id": str(user_id), "title": title.strip()[:120] or "New conversation"},
+        {
+            "user_id": str(user_id),
+            "title": normalize_conversation_title(title) or DEFAULT_CONVERSATION_TITLE,
+        },
     )
     return ConversationSummary.model_validate(dict(result.mappings().one()))
+
+
+async def update_conversation_title(
+    session: AsyncSession, *, user_id: UUID, conversation_id: UUID, title: str
+) -> ConversationSummary | None:
+    result = await session.execute(
+        text(
+            """
+            UPDATE conversations
+            SET title = :title, updated_at = :now
+            WHERE id = :conversation_id AND user_id = :user_id AND deleted_at IS NULL
+            RETURNING id, title, created_at, updated_at
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "title": normalize_conversation_title(title),
+            "now": datetime.now(UTC),
+        },
+    )
+    row = result.mappings().one_or_none()
+    return ConversationSummary.model_validate(dict(row)) if row is not None else None
 
 
 async def list_conversations(session: AsyncSession, user_id: UUID) -> ConversationListResponse:
@@ -150,6 +197,9 @@ async def get_conversation_detail(
     summary = await _get_conversation(session, user_id=user_id, conversation_id=conversation_id)
     if summary is None:
         return None
+    selected_document_ids = await _conversation_document_scope(
+        session, user_id=user_id, conversation_id=conversation_id
+    )
     result = await session.execute(
         text(
             """
@@ -165,6 +215,7 @@ async def get_conversation_detail(
     citations = await _citations_for_messages(session, user_id=user_id, messages=messages)
     return ConversationDetailResponse(
         **summary.model_dump(),
+        selected_document_ids=selected_document_ids,
         messages=[
             message.model_copy(update={"citations": citations.get(message.id, [])})
             for message in messages
@@ -216,99 +267,211 @@ async def submit_question(
     )
     if conversation is None:
         return None
-    await _validate_document_filter(session, user_id=user_id, document_ids=request.document_ids)
-    usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
-    user_message_id = await _insert_message(
+    selected_document_ids = await _validate_document_filter(
+        session, user_id=user_id, document_ids=request.document_ids
+    )
+    await _replace_conversation_document_scope(
         session,
         user_id=user_id,
         conversation_id=conversation_id,
-        role="user",
-        content=request.question.strip(),
-        status="accepted",
+        document_ids=selected_document_ids,
     )
-    embedding_provider = build_embedding_provider(settings)
-    try:
-        query_embedding = (await embedding_provider.embed([request.question.strip()]))[0]
+    question = request.question.strip()
+    if selected_document_ids and is_broad_summary_question(question):
+        chunks = await retrieve_selected_document_summary_chunks(
+            session,
+            user_id=user_id,
+            settings=settings,
+            document_ids=selected_document_ids,
+        )
+    else:
+        embedding_provider = build_embedding_provider(settings)
+        query_embedding = (await embedding_provider.embed([question]))[0]
         chunks = await retrieve_chunks(
             session,
             user_id=user_id,
             query_embedding=query_embedding,
             settings=settings,
-            document_ids=request.document_ids,
+            document_ids=selected_document_ids,
         )
-        if not chunks:
-            assistant_id = await _insert_message(
-                session,
-                user_id=user_id,
-                conversation_id=conversation_id,
-                role="assistant",
-                content=FALLBACK_ANSWER,
-                status="completed",
-            )
-            return MessageCreateResponse(
-                message=MessageResponse(
-                    id=assistant_id,
-                    role="assistant",
-                    content=FALLBACK_ANSWER,
-                    status="completed",
-                    created_at=datetime.now(UTC),
-                    citations=[],
-                ),
-                usage=usage,
-                evidence_status="insufficient_evidence",
-            )
-        chat_provider = build_chat_provider(settings)
-        chat_result = await chat_provider.generate(
-            _build_chat_request(request.question, chunks, settings)
+    if not chunks:
+        usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
+        await _insert_successful_user_message(
+            session,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            conversation_title=conversation.title,
+            question=question,
         )
-        answer = chat_result.content.strip() or FALLBACK_ANSWER
-        if answer == FALLBACK_ANSWER:
-            chunks = []
         assistant_id = await _insert_message(
             session,
             user_id=user_id,
             conversation_id=conversation_id,
             role="assistant",
-            content=answer,
+            content=FALLBACK_ANSWER,
             status="completed",
-            provider=chat_result.provider,
-            model=chat_result.model,
-        )
-        citations = await _insert_citations(
-            session,
-            user_id=user_id,
-            message_id=assistant_id,
-            chunks=chunks,
-        )
-        await session.execute(
-            text("UPDATE conversations SET updated_at = :now WHERE id = :conversation_id"),
-            {"conversation_id": str(conversation_id), "now": datetime.now(UTC)},
         )
         return MessageCreateResponse(
             message=MessageResponse(
                 id=assistant_id,
                 role="assistant",
-                content=answer,
+                content=FALLBACK_ANSWER,
                 status="completed",
                 created_at=datetime.now(UTC),
-                citations=citations,
+                citations=[],
             ),
             usage=usage,
-            evidence_status="grounded" if citations else "insufficient_evidence",
+            evidence_status="insufficient_evidence",
         )
-    except ProviderError as exc:
-        await _insert_message(
-            session,
-            user_id=user_id,
-            conversation_id=conversation_id,
+    chat_provider = build_chat_provider(settings)
+    chat_result = await chat_provider.generate(_build_chat_request(question, chunks, settings))
+    answer = chat_result.content.strip() or FALLBACK_ANSWER
+    if answer == FALLBACK_ANSWER:
+        chunks = []
+    usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
+    await _insert_successful_user_message(
+        session,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        conversation_title=conversation.title,
+        question=question,
+    )
+    assistant_id = await _insert_message(
+        session,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        role="assistant",
+        content=answer,
+        status="completed",
+        provider=chat_result.provider,
+        model=chat_result.model,
+    )
+    citations = await _insert_citations(
+        session,
+        user_id=user_id,
+        message_id=assistant_id,
+        chunks=chunks,
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE conversations
+            SET updated_at = :now
+            WHERE id = :conversation_id AND user_id = :user_id
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "now": datetime.now(UTC),
+        },
+    )
+    return MessageCreateResponse(
+        message=MessageResponse(
+            id=assistant_id,
             role="assistant",
-            content="The AI provider is temporarily unavailable.",
-            status="failed",
-            error_code=exc.code,
-        )
-        raise
-    finally:
-        _ = user_message_id
+            content=answer,
+            status="completed",
+            created_at=datetime.now(UTC),
+            citations=citations,
+        ),
+        usage=usage,
+        evidence_status="grounded" if citations else "insufficient_evidence",
+    )
+
+
+def normalize_conversation_title(value: str) -> str:
+    return " ".join(value.split()).strip()[:MAX_CONVERSATION_TITLE_LENGTH]
+
+
+def derive_title_from_question(question: str) -> str:
+    normalized = " ".join(question.split()).strip()
+    if not normalized:
+        return DEFAULT_CONVERSATION_TITLE
+    if len(normalized) <= AUTO_TITLE_LENGTH:
+        return normalized
+    return normalized[: AUTO_TITLE_LENGTH - 3].rstrip() + "..."
+
+
+def is_broad_summary_question(question: str) -> bool:
+    normalized = " ".join(question.casefold().split())
+    summary_markers = (
+        "what is this document about",
+        "what is the document about",
+        "what is this pdf about",
+        "what is the pdf about",
+        "summarize this document",
+        "summarise this document",
+        "summarize the document",
+        "summarise the document",
+        "summarize this pdf",
+        "summarise this pdf",
+        "give me an overview",
+        "overview of this document",
+        "overview of the document",
+        "main points",
+        "key points",
+    )
+    return any(marker in normalized for marker in summary_markers)
+
+
+async def _insert_successful_user_message(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    conversation_title: str,
+    question: str,
+) -> UUID:
+    user_message_id = await _insert_message(
+        session,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        role="user",
+        content=question,
+        status="accepted",
+    )
+    await _maybe_apply_first_message_title(
+        session,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        current_title=conversation_title,
+        question=question,
+    )
+    return user_message_id
+
+
+async def _maybe_apply_first_message_title(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    current_title: str,
+    question: str,
+) -> None:
+    if current_title != DEFAULT_CONVERSATION_TITLE:
+        return
+    result = await session.execute(
+        text(
+            """
+            SELECT count(*)
+            FROM messages
+            WHERE user_id = :user_id
+              AND conversation_id = :conversation_id
+              AND role = 'user'
+              AND status = 'accepted'
+            """
+        ),
+        {"user_id": str(user_id), "conversation_id": str(conversation_id)},
+    )
+    if int(result.scalar_one()) != 1:
+        return
+    await update_conversation_title(
+        session,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        title=derive_title_from_question(question),
+    )
 
 
 async def retrieve_chunks(
@@ -359,6 +522,55 @@ async def retrieve_chunks(
         params,
     )
     return [RetrievedChunk.model_validate(dict(row)) for row in result.mappings()]
+
+
+async def retrieve_selected_document_summary_chunks(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    settings: Settings,
+    document_ids: list[UUID],
+) -> list[RetrievedChunk]:
+    if not document_ids:
+        return []
+    result = await session.execute(
+        text(
+            """
+            SELECT c.id AS chunk_id,
+                   c.document_id,
+                   d.original_filename AS document_name,
+                   COALESCE(c.page_number, 1) AS page_number,
+                   c.content,
+                   0.0 AS distance
+            FROM document_chunks c
+            JOIN documents d ON d.id = c.document_id AND d.user_id = c.user_id
+            WHERE c.user_id = :user_id
+              AND c.document_id = ANY(:document_ids)
+              AND d.status = 'ready'
+              AND d.deleted_at IS NULL
+              AND length(btrim(c.content)) > 0
+            ORDER BY d.created_at, c.document_id, COALESCE(c.page_number, 999999), c.chunk_index
+            LIMIT :limit
+            """
+        ),
+        {
+            "user_id": str(user_id),
+            "document_ids": [str(document_id) for document_id in document_ids],
+            "limit": min(max(settings.retrieval_top_k, 4), 10),
+        },
+    )
+    chunks = [RetrievedChunk.model_validate(dict(row)) for row in result.mappings()]
+    bounded_chunks: list[RetrievedChunk] = []
+    remaining = settings.retrieval_max_context_characters
+    for chunk in chunks:
+        if remaining <= 0:
+            break
+        content = chunk.content[:remaining]
+        if not content:
+            break
+        bounded_chunks.append(chunk.model_copy(update={"content": content}))
+        remaining -= len(content)
+    return bounded_chunks
 
 
 def _build_chat_request(
@@ -518,27 +730,103 @@ async def _insert_citations(
 
 async def _validate_document_filter(
     session: AsyncSession, *, user_id: UUID, document_ids: list[UUID]
-) -> None:
+) -> list[UUID]:
     if not document_ids:
-        return
+        return []
+    unique_document_ids = list(dict.fromkeys(document_ids))
     result = await session.execute(
         text(
             """
-            SELECT count(*)
+            SELECT id
             FROM documents
             WHERE user_id = :user_id
               AND id = ANY(:document_ids)
               AND status = 'ready'
               AND deleted_at IS NULL
+            ORDER BY created_at, id
             """
         ),
         {
             "user_id": str(user_id),
-            "document_ids": [str(document_id) for document_id in document_ids],
+            "document_ids": [str(document_id) for document_id in unique_document_ids],
         },
     )
-    if int(result.scalar_one()) != len(set(document_ids)):
+    owned_ids = [cast(UUID, row["id"]) for row in result.mappings()]
+    if len(owned_ids) != len(unique_document_ids):
         raise ValueError("document_not_found")
+    return owned_ids
+
+
+async def _replace_conversation_document_scope(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    document_ids: list[UUID],
+) -> None:
+    await session.execute(
+        text(
+            """
+            DELETE FROM conversation_document_scopes
+            WHERE user_id = :user_id AND conversation_id = :conversation_id
+            """
+        ),
+        {"user_id": str(user_id), "conversation_id": str(conversation_id)},
+    )
+    for document_id in document_ids:
+        await session.execute(
+            text(
+                """
+                INSERT INTO conversation_document_scopes (conversation_id, user_id, document_id)
+                VALUES (:conversation_id, :user_id, :document_id)
+                ON CONFLICT (conversation_id, document_id) DO NOTHING
+                """
+            ),
+            {
+                "conversation_id": str(conversation_id),
+                "user_id": str(user_id),
+                "document_id": str(document_id),
+            },
+        )
+
+
+async def _conversation_document_scope(
+    session: AsyncSession, *, user_id: UUID, conversation_id: UUID
+) -> list[UUID]:
+    await session.execute(
+        text(
+            """
+            DELETE FROM conversation_document_scopes cds
+            WHERE cds.user_id = :user_id
+              AND cds.conversation_id = :conversation_id
+              AND NOT EXISTS (
+                SELECT 1
+                FROM documents d
+                WHERE d.id = cds.document_id
+                  AND d.user_id = cds.user_id
+                  AND d.status = 'ready'
+                  AND d.deleted_at IS NULL
+              )
+            """
+        ),
+        {"user_id": str(user_id), "conversation_id": str(conversation_id)},
+    )
+    result = await session.execute(
+        text(
+            """
+            SELECT cds.document_id
+            FROM conversation_document_scopes cds
+            JOIN documents d ON d.id = cds.document_id AND d.user_id = cds.user_id
+            WHERE cds.user_id = :user_id
+              AND cds.conversation_id = :conversation_id
+              AND d.status = 'ready'
+              AND d.deleted_at IS NULL
+            ORDER BY d.created_at, cds.document_id
+            """
+        ),
+        {"user_id": str(user_id), "conversation_id": str(conversation_id)},
+    )
+    return [cast(UUID, row["document_id"]) for row in result.mappings()]
 
 
 async def _usage_counts(session: AsyncSession, *, user_id: UUID) -> dict[str, int]:
