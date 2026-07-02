@@ -32,6 +32,7 @@ import type {
   DocumentMetadata,
   UsageStatus,
 } from "@/lib/api/types";
+import { networkUnavailableMessage, useNetworkState } from "@/lib/pwa/network";
 
 const idleChatState = { status: "idle" as const, message: "" };
 const DRAFT_STORAGE_PREFIX = "contextos.conversationDraft.";
@@ -85,6 +86,7 @@ export function ConversationWorkspace({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [networkMessage, setNetworkMessage] = useState("");
   const [historyFilter, setHistoryFilter] = useState<"active" | "archived">("active");
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
@@ -121,6 +123,8 @@ export function ConversationWorkspace({
   const latestAssistantMessage = [...(activeConversation?.messages ?? [])]
     .reverse()
     .find((message) => message.role === "assistant");
+  const networkState = useNetworkState();
+  const isOffline = networkState === "offline";
 
   useEffect(() => {
     if (!activeConversationId) {
@@ -203,6 +207,14 @@ export function ConversationWorkspace({
     });
   }
 
+  function blockOffline(event: { preventDefault: () => void }, action: string) {
+    if (!isOffline) {
+      return;
+    }
+    event.preventDefault();
+    setNetworkMessage(networkUnavailableMessage(action));
+  }
+
   const renderConversationList = () => (
     <div className="quiet-panel surface-enter flex min-h-0 flex-col rounded-lg p-3">
       <div className="flex items-center gap-2">
@@ -265,8 +277,8 @@ export function ConversationWorkspace({
   return (
     <div className="grid min-h-0 gap-5 xl:grid-cols-[18rem_minmax(0,1fr)_22rem]">
       <aside className="hidden min-h-0 space-y-4 lg:flex lg:flex-col">
-        <form action={createConversationAction}>
-          <button className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019]">
+        <form action={createConversationAction} onSubmit={(event) => blockOffline(event, "Starting a conversation")}>
+          <button className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019] disabled:opacity-60" disabled={isOffline}>
             <MessageCirclePlus aria-hidden="true" size={18} />
             New conversation
           </button>
@@ -280,29 +292,130 @@ export function ConversationWorkspace({
       </aside>
 
       <section className="quiet-panel surface-enter flex min-h-0 flex-col overflow-hidden rounded-lg p-3 md:p-5">
-        <div className="mb-4 flex items-center justify-between gap-3 lg:hidden">
-          <button
-            className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm"
-            onClick={() => setHistoryOpen(true)}
-            type="button"
-          >
-            <PanelLeft aria-hidden="true" size={17} />
-            History
-          </button>
-          <button
-            className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm xl:hidden"
-            onClick={() => setInspectorOpen(true)}
-            type="button"
-          >
-            <PanelRight aria-hidden="true" size={17} />
-            Context inspector
-          </button>
-          <form action={createConversationAction}>
-            <button className="touch-target inline-flex items-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]">
-              <MessageCirclePlus aria-hidden="true" size={17} />
-              New
+        <div className="mb-4 grid gap-3 lg:hidden">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            {isRenaming ? (
+              <form
+                action={renameAction}
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                onSubmit={(event) => blockOffline(event, "Renaming a conversation")}
+              >
+                <input name="conversation_id" type="hidden" value={activeConversation!.id} />
+                <label className="sr-only" htmlFor="conversation-title-mobile">
+                  Conversation title
+                </label>
+                <input
+                  className="min-h-11 min-w-0 flex-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-inspector)] px-3 text-sm"
+                  defaultValue={activeConversation!.title}
+                  id="conversation-title-mobile"
+                  maxLength={120}
+                  name="title"
+                  required
+                />
+                <button
+                  className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]"
+                  disabled={renamePending || isOffline}
+                >
+                  <Save aria-hidden="true" size={17} />
+                  Save
+                </button>
+                <button
+                  className="touch-target inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap"
+                  onClick={() => setIsRenaming(false)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="min-w-0 truncate text-lg font-semibold" title={activeConversation!.title}>
+                  {activeConversation!.title}
+                </h2>
+                <button
+                  aria-label="Rename conversation"
+                  className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
+                  onClick={() => setIsRenaming(true)}
+                  type="button"
+                >
+                  <Pencil aria-hidden="true" size={16} />
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="grid min-w-0 grid-cols-3 gap-2">
+            <button
+              className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-2 text-sm whitespace-nowrap"
+              onClick={() => setHistoryOpen(true)}
+              type="button"
+            >
+              <PanelLeft aria-hidden="true" size={17} />
+              History
             </button>
-          </form>
+            <button
+              className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-2 text-sm whitespace-nowrap xl:hidden"
+              onClick={() => setInspectorOpen(true)}
+              type="button"
+            >
+              <PanelRight aria-hidden="true" size={17} />
+              Context
+            </button>
+            <form
+              action={createConversationAction}
+              onSubmit={(event) => blockOffline(event, "Starting a conversation")}
+            >
+              <button
+                className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-2 text-sm font-semibold whitespace-nowrap text-[#061019] disabled:opacity-60"
+                disabled={isOffline}
+              >
+                <MessageCirclePlus aria-hidden="true" size={17} />
+                New
+              </button>
+            </form>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeConversation!.archived_at ? (
+              <form
+                action={unarchiveConversationAction}
+                onSubmit={(event) => blockOffline(event, "Restoring a conversation")}
+              >
+                <input name="conversation_id" type="hidden" value={activeConversation!.id} />
+                <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap disabled:opacity-60" disabled={isOffline}>
+                  <RotateCcw aria-hidden="true" size={17} />
+                  Restore
+                </button>
+              </form>
+            ) : (
+              <form
+                action={archiveConversationAction}
+                onSubmit={(event) => blockOffline(event, "Archiving a conversation")}
+              >
+                <input name="conversation_id" type="hidden" value={activeConversation!.id} />
+                <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap disabled:opacity-60" disabled={isOffline}>
+                  <Archive aria-hidden="true" size={17} />
+                  Archive
+                </button>
+              </form>
+            )}
+            <form
+              action={deleteConversationAction}
+              onSubmit={(event) => blockOffline(event, "Deleting a conversation")}
+            >
+              <input name="conversation_id" type="hidden" value={activeConversation!.id} />
+              <button
+                className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap text-[var(--status-danger)] disabled:opacity-60"
+                onClick={(event) => {
+                  if (!window.confirm("Delete this conversation?")) {
+                    event.preventDefault();
+                  }
+                }}
+                disabled={isOffline}
+              >
+                <Trash2 aria-hidden="true" size={17} />
+                Delete
+              </button>
+            </form>
+          </div>
         </div>
         {historyOpen ? (
           <div
@@ -310,6 +423,11 @@ export function ConversationWorkspace({
             aria-modal="true"
             className="fixed inset-0 z-50 bg-black/50 p-4 lg:hidden"
             role="dialog"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setHistoryOpen(false);
+              }
+            }}
           >
             <div className="quiet-panel flex h-full max-w-sm flex-col overflow-hidden rounded-lg bg-[var(--surface-raised)] p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -333,6 +451,11 @@ export function ConversationWorkspace({
             aria-modal="true"
             className="fixed inset-0 z-50 bg-black/50 p-4 xl:hidden"
             role="dialog"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setInspectorOpen(false);
+              }
+            }}
           >
             <div className="quiet-panel ml-auto flex h-full max-w-sm flex-col overflow-hidden rounded-lg bg-[var(--surface-raised)] p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -354,7 +477,7 @@ export function ConversationWorkspace({
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               {isRenaming ? (
-                <form action={renameAction} className="flex flex-1 flex-col gap-2 sm:flex-row">
+                <form action={renameAction} className="flex flex-1 flex-col gap-2 sm:flex-row" onSubmit={(event) => blockOffline(event, "Renaming a conversation")}>
                   <input name="conversation_id" type="hidden" value={activeConversation.id} />
                   <label className="sr-only" htmlFor="conversation-title">
                     Conversation title
@@ -369,7 +492,7 @@ export function ConversationWorkspace({
                   />
                   <button
                     className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]"
-                    disabled={renamePending}
+                    disabled={renamePending || isOffline}
                   >
                     <Save aria-hidden="true" size={17} />
                     Save
@@ -410,7 +533,7 @@ export function ConversationWorkspace({
                     {renameState.message}
                   </p>
                 ) : null}
-                <form action={deleteConversationAction}>
+                <form action={deleteConversationAction} onSubmit={(event) => blockOffline(event, "Deleting a conversation")}>
                   <input name="conversation_id" type="hidden" value={activeConversation.id} />
                   <button
                     className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--status-danger)]"
@@ -425,17 +548,17 @@ export function ConversationWorkspace({
                   </button>
                 </form>
                 {activeConversation.archived_at ? (
-                  <form action={unarchiveConversationAction}>
+                  <form action={unarchiveConversationAction} onSubmit={(event) => blockOffline(event, "Restoring a conversation")}>
                     <input name="conversation_id" type="hidden" value={activeConversation.id} />
-                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm">
+                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm disabled:opacity-60" disabled={isOffline}>
                       <RotateCcw aria-hidden="true" size={17} />
                       Restore
                     </button>
                   </form>
                 ) : (
-                  <form action={archiveConversationAction}>
+                  <form action={archiveConversationAction} onSubmit={(event) => blockOffline(event, "Archiving a conversation")}>
                     <input name="conversation_id" type="hidden" value={activeConversation.id} />
-                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm">
+                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm disabled:opacity-60" disabled={isOffline}>
                       <Archive aria-hidden="true" size={17} />
                       Archive
                     </button>
@@ -551,6 +674,10 @@ export function ConversationWorkspace({
               action={formAction}
               className="composer-surface mt-auto shrink-0 space-y-3 border-t border-[var(--border-subtle)] pt-3"
               onSubmit={(event) => {
+                if (isOffline) {
+                  blockOffline(event, "Sending chat");
+                  return;
+                }
                 if (submittingRef.current || pending || !question.trim()) {
                   event.preventDefault();
                   return;
@@ -602,7 +729,7 @@ export function ConversationWorkspace({
               />
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <AssistantOrb state={pending ? "retrieving document" : "ready"} />
-                <p
+                  <p
                   className={`text-sm ${
                     state.status === "error"
                       ? "text-[var(--status-danger)]"
@@ -610,12 +737,13 @@ export function ConversationWorkspace({
                   }`}
                   role={state.status === "error" ? "alert" : "status"}
                 >
-                  {state.message ||
+                  {networkMessage ||
+                    state.message ||
                     helperText}
                 </p>
                 <button
                   className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-document)] px-4 text-sm font-semibold text-[#07111f] disabled:opacity-60"
-                  disabled={pending || !question.trim()}
+                  disabled={pending || isOffline || !question.trim()}
                 >
                   <Send aria-hidden="true" size={17} />
                   {pending ? "Sending" : state.status === "error" ? "Retry" : "Send"}

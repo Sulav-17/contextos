@@ -15,6 +15,7 @@ import {
   updateMemoryAction,
 } from "@/features/memories/actions";
 import type { Memory, MemoryType } from "@/lib/api/types";
+import { networkUnavailableMessage, useNetworkState } from "@/lib/pwa/network";
 
 const idleState = { status: "idle" as const, message: "" };
 const memoryTypes: MemoryType[] = [
@@ -32,9 +33,19 @@ export function MemoryWorkspace({ memories }: { memories: Memory[] }) {
   const [createState, createAction, createPending] = useActionState(createMemoryAction, idleState);
   const [editState, editAction, editPending] = useActionState(updateMemoryAction, idleState);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [networkMessage, setNetworkMessage] = useState("");
   const suggestions = memories.filter((memory) => memory.status === "suggested");
   const approved = memories.filter((memory) => memory.status === "approved");
   const disabled = memories.filter((memory) => memory.status === "disabled");
+  const isOffline = useNetworkState() === "offline";
+
+  function blockOffline(event: { preventDefault: () => void }, action: string) {
+    if (!isOffline) {
+      return;
+    }
+    event.preventDefault();
+    setNetworkMessage(networkUnavailableMessage(action));
+  }
 
   return (
     <div className="space-y-6">
@@ -55,7 +66,11 @@ export function MemoryWorkspace({ memories }: { memories: Memory[] }) {
 
       <section className="quiet-panel rounded-lg p-4">
         <h2 className="font-semibold">Create memory</h2>
-        <form action={createAction} className="mt-3 grid gap-3 md:grid-cols-[12rem_1fr_auto]">
+        <form
+          action={createAction}
+          className="mt-3 grid gap-3 md:grid-cols-[12rem_1fr_auto]"
+          onSubmit={(event) => blockOffline(event, "Saving memory")}
+        >
           <label className="sr-only" htmlFor="memory-type">
             Memory type
           </label>
@@ -83,13 +98,13 @@ export function MemoryWorkspace({ memories }: { memories: Memory[] }) {
           />
           <button
             className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019]"
-            disabled={createPending}
+            disabled={createPending || isOffline}
           >
             <Plus aria-hidden="true" size={17} />
             Save
           </button>
         </form>
-        {createState.message ? (
+        {networkMessage || createState.message ? (
           <p
             className={`mt-2 text-sm ${
               createState.status === "error"
@@ -98,7 +113,7 @@ export function MemoryWorkspace({ memories }: { memories: Memory[] }) {
             }`}
             role={createState.status === "error" ? "alert" : "status"}
           >
-            {createState.message}
+            {networkMessage || createState.message}
           </p>
         ) : null}
       </section>
@@ -110,6 +125,8 @@ export function MemoryWorkspace({ memories }: { memories: Memory[] }) {
         memories={suggestions}
         onCancel={() => setEditingId(null)}
         onEdit={setEditingId}
+        offline={isOffline}
+        onOfflineAction={blockOffline}
         title="Suggested"
         updateAction={editAction}
       />
@@ -120,6 +137,8 @@ export function MemoryWorkspace({ memories }: { memories: Memory[] }) {
         memories={approved}
         onCancel={() => setEditingId(null)}
         onEdit={setEditingId}
+        offline={isOffline}
+        onOfflineAction={blockOffline}
         title="Approved"
         updateAction={editAction}
       />
@@ -130,6 +149,8 @@ export function MemoryWorkspace({ memories }: { memories: Memory[] }) {
         memories={disabled}
         onCancel={() => setEditingId(null)}
         onEdit={setEditingId}
+        offline={isOffline}
+        onOfflineAction={blockOffline}
         title="Disabled"
         updateAction={editAction}
       />
@@ -144,6 +165,8 @@ function MemorySection({
   memories,
   onCancel,
   onEdit,
+  offline,
+  onOfflineAction,
   title,
   updateAction,
 }: {
@@ -153,6 +176,8 @@ function MemorySection({
   memories: Memory[];
   onCancel: () => void;
   onEdit: (memoryId: string) => void;
+  offline: boolean;
+  onOfflineAction: (event: { preventDefault: () => void }, action: string) => void;
   title: string;
   updateAction: (payload: FormData) => void;
 }) {
@@ -170,7 +195,11 @@ function MemorySection({
               key={memory.id}
             >
               {editingId === memory.id ? (
-                <form action={updateAction} className="grid gap-3">
+                <form
+                  action={updateAction}
+                  className="grid gap-3"
+                  onSubmit={(event) => onOfflineAction(event, "Updating memory")}
+                >
                   <input name="memory_id" type="hidden" value={memory.id} />
                   <select
                     className="min-h-11 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-inspector)] px-3 text-sm"
@@ -193,7 +222,7 @@ function MemorySection({
                   <div className="flex flex-wrap gap-2">
                     <button
                       className="touch-target inline-flex items-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]"
-                      disabled={editPending}
+                      disabled={editPending || offline}
                     >
                       <Save aria-hidden="true" size={16} />
                       Save
@@ -235,7 +264,7 @@ function MemorySection({
                         ) : null}
                       </p>
                     </div>
-                    <MemoryActions memory={memory} onEdit={onEdit} />
+                    <MemoryActions memory={memory} offline={offline} onEdit={onEdit} onOfflineAction={onOfflineAction} />
                   </div>
                 </>
               )}
@@ -249,24 +278,28 @@ function MemorySection({
 
 function MemoryActions({
   memory,
+  offline,
   onEdit,
+  onOfflineAction,
 }: {
   memory: Memory;
+  offline: boolean;
   onEdit: (memoryId: string) => void;
+  onOfflineAction: (event: { preventDefault: () => void }, action: string) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
       {memory.status === "suggested" ? (
         <>
-          <MemoryForm action={approveMemoryAction} icon={<Check size={16} />} label="Approve" memory={memory} />
-          <MemoryForm action={rejectMemoryAction} icon={<X size={16} />} label="Reject" memory={memory} />
+          <MemoryForm action={approveMemoryAction} icon={<Check size={16} />} label="Approve" memory={memory} offline={offline} onOfflineAction={onOfflineAction} />
+          <MemoryForm action={rejectMemoryAction} icon={<X size={16} />} label="Reject" memory={memory} offline={offline} onOfflineAction={onOfflineAction} />
         </>
       ) : null}
       {memory.status === "approved" ? (
-        <MemoryForm action={disableMemoryAction} icon={<X size={16} />} label="Disable" memory={memory} />
+        <MemoryForm action={disableMemoryAction} icon={<X size={16} />} label="Disable" memory={memory} offline={offline} onOfflineAction={onOfflineAction} />
       ) : null}
       {memory.status === "disabled" ? (
-        <MemoryForm action={enableMemoryAction} icon={<RotateCcw size={16} />} label="Enable" memory={memory} />
+        <MemoryForm action={enableMemoryAction} icon={<RotateCcw size={16} />} label="Enable" memory={memory} offline={offline} onOfflineAction={onOfflineAction} />
       ) : null}
       <button
         className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm"
@@ -276,7 +309,7 @@ function MemoryActions({
         <Pencil aria-hidden="true" size={16} />
         Edit
       </button>
-      <MemoryForm action={deleteMemoryAction} icon={<Trash2 size={16} />} label="Delete" memory={memory} />
+      <MemoryForm action={deleteMemoryAction} icon={<Trash2 size={16} />} label="Delete" memory={memory} offline={offline} onOfflineAction={onOfflineAction} />
     </div>
   );
 }
@@ -295,17 +328,22 @@ function MemoryForm({
   icon,
   label,
   memory,
+  offline,
+  onOfflineAction,
 }: {
   action: (formData: FormData) => void;
   icon: ReactNode;
   label: string;
   memory: Memory;
+  offline: boolean;
+  onOfflineAction: (event: { preventDefault: () => void }, action: string) => void;
 }) {
   return (
-    <form action={action}>
+    <form action={action} onSubmit={(event) => onOfflineAction(event, `${label} memory`)}>
       <input name="memory_id" type="hidden" value={memory.id} />
       <button
-        className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm"
+        className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm disabled:opacity-60"
+        disabled={offline}
         onClick={(event) => {
           if (label === "Delete" && !window.confirm("Delete this memory?")) {
             event.preventDefault();

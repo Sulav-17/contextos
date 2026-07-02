@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import { SimulationBackdrop } from "@/components/ambient/simulation-backdrop";
+import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 
 import "./globals.css";
@@ -12,6 +13,27 @@ export const metadata: Metadata = {
     template: "%s | ContextOS",
   },
   description: "Private knowledge assistant for individual workspaces.",
+  applicationName: "ContextOS",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "ContextOS",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icons/contextos-icon.svg",
+    apple: "/icons/contextos-apple.svg",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#50d9f6",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -32,6 +54,7 @@ try {
           }}
         />
         <ThemeProvider>
+          <ServiceWorkerRegistration />
           <SimulationBackdrop />
           {children}
         </ThemeProvider>

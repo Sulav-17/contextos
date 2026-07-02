@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryWorkspace } from "@/features/memories/memory-workspace";
 import type { Memory } from "@/lib/api/types";
@@ -32,6 +32,10 @@ function memory(overrides: Partial<Memory>): Memory {
 }
 
 describe("MemoryWorkspace", () => {
+  beforeEach(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+  });
+
   it("renders memory lifecycle areas and provenance links", () => {
     render(
       <MemoryWorkspace
@@ -62,5 +66,24 @@ describe("MemoryWorkspace", () => {
       "href",
       "/conversations?conversation=60000000-0000-4000-8000-000000000001",
     );
+  });
+
+  it("disables memory mutations while offline", async () => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    render(
+      <MemoryWorkspace
+        memories={[
+          memory({
+            id: "70000000-0000-4000-8000-000000000001",
+            status: "suggested",
+          }),
+        ]}
+      />,
+    );
+    window.dispatchEvent(new Event("offline"));
+
+    expect(await screen.findByRole("button", { name: /save/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /approve/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /reject/i })).toBeDisabled();
   });
 });

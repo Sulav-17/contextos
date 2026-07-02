@@ -39,6 +39,7 @@ function document(overrides: Partial<DocumentMetadata> = {}): DocumentMetadata {
 describe("DocumentLibrary", () => {
   beforeEach(() => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
   });
 
   it("renders an empty library with upload controls", () => {
@@ -95,5 +96,21 @@ describe("DocumentLibrary", () => {
     fireEvent.click(screen.getByRole("button", { name: /delete/i }));
 
     expect(confirm).toHaveBeenCalledWith("Delete this document and its extracted chunks?");
+  });
+
+  it("disables upload and retry actions while offline", async () => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    render(
+      <DocumentLibrary
+        documents={[document({ status: "failed", failure_reason: "Interrupted upload." })]}
+        maxDocuments={10}
+        maxSizeMb={10}
+      />,
+    );
+    window.dispatchEvent(new Event("offline"));
+
+    expect(await screen.findByRole("button", { name: /upload/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeDisabled();
+    expect(screen.getByLabelText("Choose PDF")).toBeDisabled();
   });
 });

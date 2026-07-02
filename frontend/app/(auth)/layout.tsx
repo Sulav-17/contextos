@@ -5,7 +5,7 @@ import { ThemeControl } from "@/components/theme/theme-control";
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <main className="grid min-h-dvh place-items-center px-4 py-10">
+    <main className="grid min-h-dvh place-items-center px-4 py-10" data-app-shell="auth">
       <a href="#auth-content" className="skip-link">
         Skip to main content
       </a>

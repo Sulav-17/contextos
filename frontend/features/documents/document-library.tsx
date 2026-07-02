@@ -11,6 +11,7 @@ import {
   uploadDocumentAction,
 } from "@/features/documents/actions";
 import type { DocumentMetadata } from "@/lib/api/types";
+import { networkUnavailableMessage, useNetworkState } from "@/lib/pwa/network";
 
 const idleDocumentActionState = { status: "idle" as const, message: "" };
 
@@ -50,6 +51,7 @@ export function DocumentLibrary({
     idleDocumentActionState,
   );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [networkMessage, setNetworkMessage] = useState("");
   const hasActiveProcessing = documents.some((document) =>
     ["queued", "processing"].includes(document.status),
   );
@@ -57,6 +59,15 @@ export function DocumentLibrary({
     () => documents.filter((document) => document.status === "ready"),
     [documents],
   );
+  const isOffline = useNetworkState() === "offline";
+
+  function blockOffline(event: { preventDefault: () => void }, action: string) {
+    if (!isOffline) {
+      return;
+    }
+    event.preventDefault();
+    setNetworkMessage(networkUnavailableMessage(action));
+  }
 
   useEffect(() => {
     if (!hasActiveProcessing) {
@@ -68,7 +79,11 @@ export function DocumentLibrary({
 
   return (
     <div className="space-y-6">
-      <form action={formAction} className="quiet-panel rounded-lg border-dashed p-5">
+      <form
+        action={formAction}
+        className="quiet-panel rounded-lg border-dashed p-5"
+        onSubmit={(event) => blockOffline(event, "Uploading PDFs")}
+      >
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold">Private PDFs</h2>
@@ -81,13 +96,14 @@ export function DocumentLibrary({
               accept="application/pdf,.pdf"
               aria-label="Choose PDF"
               className="touch-target max-w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-overlay)] px-3 py-2 text-sm"
+              disabled={isOffline}
               name="file"
               required
               type="file"
             />
             <button
               className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-document)] px-4 text-sm font-semibold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={pending}
+              disabled={pending || isOffline}
               type="submit"
             >
               <Upload aria-hidden="true" size={18} />
@@ -101,7 +117,8 @@ export function DocumentLibrary({
           }`}
           role={state.status === "error" ? "alert" : "status"}
         >
-          {state.message ||
+          {networkMessage ||
+            state.message ||
             "General chat works without PDFs. Select documents when you want cited answers."}
         </p>
       </form>
@@ -115,13 +132,13 @@ export function DocumentLibrary({
                 Select one or more ready documents, then start a conversation with that scope.
               </p>
             </div>
-            <form action={createScopedConversationAction}>
+            <form action={createScopedConversationAction} onSubmit={(event) => blockOffline(event, "Starting a scoped conversation")}>
               {selectedIds.map((documentId) => (
                 <input key={documentId} name="document_ids" type="hidden" value={documentId} />
               ))}
               <button
                 className="touch-target inline-flex items-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019] disabled:opacity-60"
-                disabled={selectedIds.length === 0}
+                disabled={selectedIds.length === 0 || isOffline}
               >
                 <MessageCirclePlus aria-hidden="true" size={17} />
                 Start with selected documents
@@ -192,9 +209,9 @@ export function DocumentLibrary({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {document.status === "ready" ? (
-                    <form action={createScopedConversationAction}>
+                    <form action={createScopedConversationAction} onSubmit={(event) => blockOffline(event, "Starting a scoped conversation")}>
                       <input name="document_ids" type="hidden" value={document.id} />
-                      <button className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]">
+                      <button className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019] disabled:opacity-60" disabled={isOffline}>
                         <MessageCirclePlus aria-hidden="true" size={17} />
                         Ask about this document
                       </button>
@@ -204,14 +221,15 @@ export function DocumentLibrary({
                     aria-disabled={document.status === "deleted"}
                     className="touch-target inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--text-secondary)]"
                     href={`/libraries/${document.id}/download`}
+                    onClick={(event) => blockOffline(event, "Downloading documents")}
                   >
                     <Download aria-hidden="true" size={17} />
                     Download
                   </a>
                   {document.status === "failed" ? (
-                    <form action={retryDocumentAction}>
+                    <form action={retryDocumentAction} onSubmit={(event) => blockOffline(event, "Retrying ingestion")}>
                       <input name="document_id" type="hidden" value={document.id} />
-                      <button className="touch-target inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--text-secondary)]">
+                      <button className="touch-target inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--text-secondary)] disabled:opacity-60" disabled={isOffline}>
                         <RefreshCw aria-hidden="true" size={17} />
                         Retry
                       </button>
@@ -220,13 +238,17 @@ export function DocumentLibrary({
                   <form
                     action={deleteDocumentAction}
                     onSubmit={(event) => {
+                      if (isOffline) {
+                        blockOffline(event, "Deleting documents");
+                        return;
+                      }
                       if (!window.confirm("Delete this document and its extracted chunks?")) {
                         event.preventDefault();
                       }
                     }}
                   >
                     <input name="document_id" type="hidden" value={document.id} />
-                    <button className="touch-target inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--status-danger)]">
+                    <button className="touch-target inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--status-danger)] disabled:opacity-60" disabled={isOffline}>
                       <Trash2 aria-hidden="true" size={17} />
                       Delete
                     </button>

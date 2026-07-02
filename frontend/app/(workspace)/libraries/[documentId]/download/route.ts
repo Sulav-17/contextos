@@ -9,13 +9,17 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> },
 ) {
+  const noStoreHeaders = { "Cache-Control": "private, no-store" };
   const supabase = await createSupabaseServerClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) {
-    return NextResponse.json({ error: "Authentication is required." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Authentication is required." },
+      { status: 401, headers: noStoreHeaders },
+    );
   }
 
   const { documentId } = await params;
@@ -30,12 +34,15 @@ export async function GET(
     },
   );
   if (!response.ok || response.body === null) {
-    return NextResponse.json({ error: "Document download is unavailable." }, { status: response.status });
+    return NextResponse.json(
+      { error: "Document download is unavailable." },
+      { status: response.status, headers: noStoreHeaders },
+    );
   }
   return new NextResponse(response.body, {
     status: 200,
     headers: {
-      "Cache-Control": "private, no-store",
+      ...noStoreHeaders,
       "Content-Disposition": response.headers.get("Content-Disposition") ?? "attachment",
       "Content-Type": response.headers.get("Content-Type") ?? "application/pdf",
     },

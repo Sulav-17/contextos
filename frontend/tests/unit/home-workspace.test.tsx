@@ -88,6 +88,7 @@ describe("HomeWorkspace", () => {
     vi.mocked(quickStartConversationAction).mockClear();
     vi.mocked(quickStartConversationAction).mockImplementation(() => new Promise(() => undefined));
     window.sessionStorage.clear();
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
   });
 
   it("renders quick-start inputs, recent data, usage, upload shortcut, and restored prompt", async () => {
@@ -192,5 +193,25 @@ describe("HomeWorkspace", () => {
     await waitFor(() => expect(quickStartConversationAction).toHaveBeenCalledTimes(1));
     const formData = vi.mocked(quickStartConversationAction).mock.calls[0]?.[1] as FormData;
     expect(formData.getAll("document_ids")).toEqual([]);
+  });
+
+  it("disables quick-start while offline without discarding text", async () => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    render(
+      <HomeWorkspace
+        dashboard={dashboard}
+        documents={[document]}
+        greeting="Workspace ready"
+      />,
+    );
+    window.dispatchEvent(new Event("offline"));
+
+    fireEvent.change(screen.getByLabelText("Ask your knowledge"), {
+      target: { value: "Keep home draft." },
+    });
+
+    expect(await screen.findByRole("button", { name: /ask/i })).toBeDisabled();
+    expect(screen.getByLabelText("Ask your knowledge")).toHaveValue("Keep home draft.");
+    expect(quickStartConversationAction).not.toHaveBeenCalled();
   });
 });

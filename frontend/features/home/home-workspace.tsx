@@ -9,6 +9,7 @@ import { PROMPT_STORAGE_KEY } from "@/components/public/public-landing";
 import { quickStartConversationAction, createConversationAction } from "@/features/conversations/actions";
 import { approveMemoryAction, rejectMemoryAction } from "@/features/memories/actions";
 import type { DashboardData, DocumentMetadata } from "@/lib/api/types";
+import { networkUnavailableMessage, useNetworkState } from "@/lib/pwa/network";
 
 const idleChatState = { status: "idle" as const, message: "" };
 
@@ -28,6 +29,7 @@ export function HomeWorkspace({
   const [state, action, pending] = useActionState(quickStartConversationAction, idleChatState);
   const [question, setQuestion] = useState("");
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
+  const [networkMessage, setNetworkMessage] = useState("");
   const submittingRef = useRef(false);
   const readyDocuments = useMemo(
     () => documents.filter((document) => document.status === "ready"),
@@ -62,6 +64,15 @@ export function HomeWorkspace({
     dashboard.counts.active_conversations === 0 &&
     dashboard.counts.approved_memories === 0 &&
     dashboard.counts.pending_suggestions === 0;
+  const isOffline = useNetworkState() === "offline";
+
+  function blockOffline(event: { preventDefault: () => void }, action: string) {
+    if (!isOffline) {
+      return;
+    }
+    event.preventDefault();
+    setNetworkMessage(networkUnavailableMessage(action));
+  }
 
   return (
     <div className="space-y-8">
@@ -83,8 +94,8 @@ export function HomeWorkspace({
               <FileUp aria-hidden="true" size={17} />
               Upload PDF
             </Link>
-            <form action={createConversationAction}>
-              <button className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019]">
+            <form action={createConversationAction} onSubmit={(event) => blockOffline(event, "Starting a conversation")}>
+              <button className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019] disabled:opacity-60" disabled={isOffline}>
                 <MessageCirclePlus aria-hidden="true" size={17} />
                 New conversation
               </button>
@@ -111,6 +122,10 @@ export function HomeWorkspace({
           action={action}
           className="mt-6 space-y-4"
           onSubmit={(event) => {
+            if (isOffline) {
+              blockOffline(event, "Quick-start chat");
+              return;
+            }
             if (submittingRef.current || pending || !question.trim()) {
               event.preventDefault();
               return;
@@ -167,14 +182,15 @@ export function HomeWorkspace({
               }`}
               role={state.status === "error" ? "alert" : "status"}
             >
-              {state.message ||
+              {networkMessage ||
+                state.message ||
                 (selectedDocumentIds.length > 0
                   ? "Selected PDFs will be used for cited answers."
                   : "General chat works without PDFs. Saved memory only applies after approval.")}
             </p>
             <button
               className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019] disabled:opacity-60"
-              disabled={pending || !question.trim()}
+              disabled={pending || isOffline || !question.trim()}
             >
               <Send aria-hidden="true" size={17} />
               {pending ? "Starting" : "Ask"}
@@ -262,15 +278,15 @@ export function HomeWorkspace({
                   </p>
                   <p className="mt-2 text-sm leading-6">{memory.content}</p>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <form action={approveMemoryAction}>
+                    <form action={approveMemoryAction} onSubmit={(event) => blockOffline(event, "Approving memory")}>
                       <input name="memory_id" type="hidden" value={memory.id} />
-                      <button className="touch-target rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]">
+                      <button className="touch-target rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019] disabled:opacity-60" disabled={isOffline}>
                         Approve
                       </button>
                     </form>
-                    <form action={rejectMemoryAction}>
+                    <form action={rejectMemoryAction} onSubmit={(event) => blockOffline(event, "Rejecting memory")}>
                       <input name="memory_id" type="hidden" value={memory.id} />
-                      <button className="touch-target rounded-lg border border-[var(--border-subtle)] px-3 text-sm">
+                      <button className="touch-target rounded-lg border border-[var(--border-subtle)] px-3 text-sm disabled:opacity-60" disabled={isOffline}>
                         Reject
                       </button>
                     </form>

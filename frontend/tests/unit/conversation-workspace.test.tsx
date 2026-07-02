@@ -84,6 +84,7 @@ describe("ConversationWorkspace", () => {
     vi.mocked(submitQuestionAction).mockClear();
     vi.mocked(submitQuestionAction).mockImplementation(() => new Promise(() => undefined));
     window.sessionStorage.clear();
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
   });
 
   it("renders conversation controls, usage, selected-document inputs, and citations", () => {
@@ -103,7 +104,29 @@ describe("ConversationWorkspace", () => {
     expect(screen.getByText("Used 1 document")).toBeInTheDocument();
     expect(screen.getByText("[1] research.pdf, page 2")).toBeInTheDocument();
     expect(screen.getByText("ContextOS stores private PDFs.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /rename conversation/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /rename conversation/i }).length).toBeGreaterThan(
+      1,
+    );
+  });
+
+  it("uses a mobile-safe conversation toolbar and preserves desktop controls", () => {
+    const { container } = render(
+      <ConversationWorkspace
+        activeConversation={conversation()}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /history/i })).toHaveClass("whitespace-nowrap");
+    expect(screen.getByRole("button", { name: /^context$/i })).toHaveClass("whitespace-nowrap");
+    expect(screen.getByRole("button", { name: /^new$/i })).toHaveClass("whitespace-nowrap");
+    expect(screen.getByRole("button", { name: /context inspector/i })).toHaveClass(
+      "xl:inline-flex",
+    );
+    expect(container.querySelector(".lg\\:hidden")).toBeTruthy();
   });
 
   it("renders weak-evidence and limit state text safely", () => {
@@ -527,6 +550,30 @@ describe("ConversationWorkspace", () => {
       />,
     );
     await waitFor(() => expect(screen.getByLabelText("Question")).toHaveValue(""));
+  });
+
+  it("disables chat send while offline and preserves composer text", async () => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    render(
+      <ConversationWorkspace
+        activeConversation={conversation()}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+    window.dispatchEvent(new Event("offline"));
+    await waitFor(() => expect(screen.getByLabelText("Question")).toHaveValue(""));
+
+    fireEvent.change(screen.getByLabelText("Question"), {
+      target: { value: "Keep this offline draft." },
+    });
+
+    const send = await screen.findByRole("button", { name: /send/i });
+    expect(send).toBeDisabled();
+    expect(screen.getByLabelText("Question")).toHaveValue("Keep this offline draft.");
+    expect(submitQuestionAction).not.toHaveBeenCalled();
   });
 
   it("scrolls to the newest message when the user is already near the bottom", async () => {

@@ -20,7 +20,10 @@ describe("PublicLanding", () => {
   });
 
   it("stores anonymous prompt intent locally and routes to auth", () => {
-    render(<PublicLanding />);
+    const { container } = render(<PublicLanding />);
+
+    expect(container.querySelector('[data-app-shell="public"]')).toHaveClass("min-h-dvh");
+    expect(container.querySelector('[data-app-shell="public"]')).not.toHaveClass("overflow-hidden");
 
     fireEvent.change(screen.getByLabelText(/ask a private pdf question/i), {
       target: { value: "What does my policy say?" },
@@ -33,4 +36,3 @@ describe("PublicLanding", () => {
     expect(assign).toHaveBeenCalledWith("/login?next=/home&intent=chat");
   });
 });
-

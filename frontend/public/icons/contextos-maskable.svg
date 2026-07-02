@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ContextOS">
+  <rect width="512" height="512" fill="#050912"/>
+  <circle cx="256" cy="256" r="170" fill="#101827" stroke="#50d9f6" stroke-width="20"/>
+  <path d="M146 274c48-94 172-94 220 0" fill="none" stroke="#73a7ff" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="256" cy="248" r="58" fill="#50d9f6"/>
+  <path d="M194 352h124" stroke="#d7b16a" stroke-width="24" stroke-linecap="round"/>
+</svg>

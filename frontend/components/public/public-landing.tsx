@@ -22,7 +22,10 @@ export function PublicLanding() {
   }
 
   return (
-    <main className="relative min-h-dvh overflow-hidden px-4 py-5 md:px-8">
+    <main
+      className="relative min-h-dvh overflow-x-hidden px-4 py-5 md:px-8"
+      data-app-shell="public"
+    >
       <header className="mx-auto flex max-w-6xl items-center justify-between">
         <Link className="text-lg font-semibold tracking-normal" href="/">
           ContextOS

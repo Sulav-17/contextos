@@ -179,6 +179,7 @@ async def test_first_authenticated_access_provisions_one_local_user(
         response = client.get("/api/v1/me", headers={"Authorization": "Bearer public-user"})
 
     assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
     assert response.json()["id"] == str(PUBLIC_USER)
     row = await read_user_row(migration_engine, PUBLIC_USER)
     assert row == {
@@ -199,7 +200,28 @@ async def test_repeat_authenticated_access_is_idempotent(
 
     assert first.status_code == 200
     assert second.status_code == 200
+    assert first.headers["Cache-Control"] == "private, no-store"
+    assert second.headers["Cache-Control"] == "private, no-store"
     assert await count_users_by_email(migration_engine, "verified.user@example.test") == 1
+
+
+@pytest.mark.asyncio
+async def test_authenticated_preferences_are_no_store() -> None:
+    with build_app() as client:
+        read_response = client.get(
+            "/api/v1/me/preferences",
+            headers={"Authorization": "Bearer public-user"},
+        )
+        patch_response = client.patch(
+            "/api/v1/me/preferences",
+            headers={"Authorization": "Bearer public-user"},
+            json={"greeting_mode": "direct"},
+        )
+
+    assert read_response.status_code == 200
+    assert patch_response.status_code == 200
+    assert read_response.headers["Cache-Control"] == "private, no-store"
+    assert patch_response.headers["Cache-Control"] == "private, no-store"
 
 
 @pytest.mark.asyncio
