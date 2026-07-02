@@ -24,11 +24,13 @@ from contextos.domain.chat import (
     MessageCreateRequest,
     MessageCreateResponse,
     UsageResponse,
+    archive_conversation,
     create_conversation,
     delete_conversation,
     get_conversation_detail,
     list_conversations,
     submit_question,
+    unarchive_conversation,
     update_conversation_title,
     usage_status,
 )
@@ -45,16 +47,22 @@ async def create_conversation_route(
     context: AuthContext = AUTH_CONTEXT,
 ) -> ConversationSummary:
     response.headers["Cache-Control"] = "private, no-store"
-    return await create_conversation(context.session, user_id=context.user.id, title=request.title)
+    return await create_conversation(
+        context.session,
+        user_id=context.user.id,
+        title=request.title,
+        document_ids=request.document_ids,
+    )
 
 
 @router.get("/api/v1/conversations", response_model=ConversationListResponse)
 async def list_conversations_route(
     response: Response,
+    archived: bool = False,
     context: AuthContext = AUTH_CONTEXT,
 ) -> ConversationListResponse:
     response.headers["Cache-Control"] = "private, no-store"
-    return await list_conversations(context.session, context.user.id)
+    return await list_conversations(context.session, context.user.id, archived=archived)
 
 
 @router.get("/api/v1/conversations/{conversation_id}", response_model=ConversationDetailResponse)
@@ -85,6 +93,38 @@ async def update_conversation_route(
         user_id=context.user.id,
         conversation_id=conversation_id,
         title=request.title,
+    )
+    if conversation is None:
+        raise ContextOSError(CONVERSATION_NOT_FOUND)
+    return conversation
+
+
+@router.post("/api/v1/conversations/{conversation_id}/archive", response_model=ConversationSummary)
+async def archive_conversation_route(
+    conversation_id: UUID,
+    response: Response,
+    context: AuthContext = AUTH_CONTEXT,
+) -> ConversationSummary:
+    response.headers["Cache-Control"] = "private, no-store"
+    conversation = await archive_conversation(
+        context.session, user_id=context.user.id, conversation_id=conversation_id
+    )
+    if conversation is None:
+        raise ContextOSError(CONVERSATION_NOT_FOUND)
+    return conversation
+
+
+@router.post(
+    "/api/v1/conversations/{conversation_id}/unarchive", response_model=ConversationSummary
+)
+async def unarchive_conversation_route(
+    conversation_id: UUID,
+    response: Response,
+    context: AuthContext = AUTH_CONTEXT,
+) -> ConversationSummary:
+    response.headers["Cache-Control"] = "private, no-store"
+    conversation = await unarchive_conversation(
+        context.session, user_id=context.user.id, conversation_id=conversation_id
     )
     if conversation is None:
         raise ContextOSError(CONVERSATION_NOT_FOUND)

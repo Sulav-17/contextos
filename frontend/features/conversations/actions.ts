@@ -4,9 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  archiveConversation,
   createConversation,
+  createScopedConversation,
   deleteConversation,
   submitQuestion,
+  unarchiveConversation,
   updateConversationTitle,
 } from "@/lib/api/conversations";
 
@@ -21,9 +24,31 @@ export async function createConversationAction(): Promise<void> {
   redirect(`/conversations?conversation=${conversation.id}`);
 }
 
+export async function createScopedConversationAction(formData: FormData): Promise<void> {
+  const documentIds = formData.getAll("document_ids").map(String).filter(Boolean);
+  const conversation = await createScopedConversation(documentIds);
+  revalidatePath("/conversations");
+  revalidatePath("/home");
+  revalidatePath("/libraries");
+  redirect(`/conversations?conversation=${conversation.id}`);
+}
+
 export async function deleteConversationAction(formData: FormData): Promise<void> {
   const conversationId = String(formData.get("conversation_id") ?? "");
   await deleteConversation(conversationId);
+  revalidatePath("/conversations");
+  redirect("/conversations");
+}
+
+export async function archiveConversationAction(formData: FormData): Promise<void> {
+  const conversationId = String(formData.get("conversation_id") ?? "");
+  await archiveConversation(conversationId);
+  revalidatePath("/conversations");
+}
+
+export async function unarchiveConversationAction(formData: FormData): Promise<void> {
+  const conversationId = String(formData.get("conversation_id") ?? "");
+  await unarchiveConversation(conversationId);
   revalidatePath("/conversations");
 }
 
@@ -38,8 +63,11 @@ export async function submitQuestionAction(
     return { status: "error", message: "Write a question before sending." };
   }
   try {
-    await submitQuestion(conversationId, question, documentIds);
+    const response = await submitQuestion(conversationId, question, documentIds);
     revalidatePath("/conversations");
+    if (response.source_mode === "memory_suggestion_created") {
+      return { status: "success", message: "Memory suggestion created. Awaiting approval." };
+    }
     return { status: "success", message: "Answer added." };
   } catch (error) {
     return {

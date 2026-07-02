@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import Any, Final, cast
@@ -20,30 +19,34 @@ from contextos.core.config import Settings
 from contextos.domain.document_ingestion import extract_pdf_chunks, process_document
 from contextos.infrastructure.database import DatabaseResource
 from contextos.main import create_app
+from tests.support import ensure_test_database, required_env, required_test_database_url
 
 USER_A: Final = UUID("30000000-0000-4000-8000-000000000001")
 USER_B: Final = UUID("30000000-0000-4000-8000-000000000002")
 TEST_USERS: Final = (USER_A, USER_B)
 
 
-def required_env(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        pytest.fail(f"{name} is required for document API tests.")
-    return value
-
-
 def build_alembic_config() -> Config:
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
-    config.set_main_option("sqlalchemy.url", required_env("CONTEXTOS_MIGRATION_DATABASE_URL"))
+    config.set_main_option(
+        "sqlalchemy.url",
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        ),
+    )
     return config
 
 
 @pytest.fixture(scope="session")
 def migrated_database() -> None:
-    required_env("CONTEXTOS_DATABASE_URL")
-    required_env("CONTEXTOS_MIGRATION_DATABASE_URL")
+    ensure_test_database()
+    required_test_database_url("CONTEXTOS_TEST_DATABASE_URL", "CONTEXTOS_DATABASE_URL")
+    required_test_database_url(
+        "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+        "CONTEXTOS_MIGRATION_DATABASE_URL",
+    )
     required_env("POSTGRES_APP_USER")
     command.upgrade(build_alembic_config(), "head")
 
@@ -51,7 +54,10 @@ def migrated_database() -> None:
 @pytest.fixture
 async def migration_engine(migrated_database: None) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(
-        required_env("CONTEXTOS_MIGRATION_DATABASE_URL"),
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        ),
         pool_pre_ping=True,
     )
     try:
@@ -129,10 +135,18 @@ def build_client(
                 "environment": "test",
                 "log_level": "INFO",
                 "log_format": "json",
-                "database_url": required_env("CONTEXTOS_DATABASE_URL"),
-                "migration_database_url": required_env("CONTEXTOS_MIGRATION_DATABASE_URL"),
+                "database_url": required_test_database_url(
+                    "CONTEXTOS_TEST_DATABASE_URL",
+                    "CONTEXTOS_DATABASE_URL",
+                ),
+                "migration_database_url": required_test_database_url(
+                    "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+                    "CONTEXTOS_MIGRATION_DATABASE_URL",
+                ),
                 "redis_url": "redis://127.0.0.1:6379/0",
                 "document_storage_root": tmp_path / "private-documents",
+                "llm_provider": "fake",
+                "embedding_provider": "fake",
                 **overrides,
             }
         )

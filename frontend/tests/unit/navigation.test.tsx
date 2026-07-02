@@ -7,7 +7,7 @@ describe("navigation", () => {
     expect(primaryNavItems.map((item) => item.label)).toEqual([
       "Home",
       "Conversations",
-      "Libraries",
+      "Documents",
       "Memories",
     ]);
     expect(secondaryNavItems.map((item) => item.label)).toContain("Projects");

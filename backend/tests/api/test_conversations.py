@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import Any, Final, cast
@@ -23,11 +22,11 @@ from contextos.auth.errors import AUTHENTICATION_REQUIRED, INVALID_AUTHENTICATIO
 from contextos.auth.jwt import AuthenticationError
 from contextos.auth.principal import Principal
 from contextos.core.config import Settings
-from contextos.domain.ai import build_embedding_provider
+from contextos.domain.ai import ProviderError, build_embedding_provider
 from contextos.domain.chat import RetrievedChunk, retrieve_chunks, vector_literal
 from contextos.infrastructure.database import DatabaseResource
 from contextos.main import create_app
-from contextos.domain.ai import ProviderError
+from tests.support import ensure_test_database, required_env, required_test_database_url
 
 USER_A: Final = UUID("32000000-0000-4000-8000-000000000001")
 USER_B: Final = UUID("32000000-0000-4000-8000-000000000002")
@@ -35,25 +34,27 @@ DOCUMENT_A: Final = UUID("33000000-0000-4000-8000-000000000001")
 DOCUMENT_B: Final = UUID("33000000-0000-4000-8000-000000000002")
 DOCUMENT_OTHER: Final = UUID("33000000-0000-4000-8000-000000000003")
 
-
-def required_env(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        pytest.fail(f"{name} is required for conversation API tests.")
-    return value
-
-
 def build_alembic_config() -> Config:
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
-    config.set_main_option("sqlalchemy.url", required_env("CONTEXTOS_MIGRATION_DATABASE_URL"))
+    config.set_main_option(
+        "sqlalchemy.url",
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        ),
+    )
     return config
 
 
 @pytest.fixture(scope="session")
 def migrated_database() -> None:
-    required_env("CONTEXTOS_DATABASE_URL")
-    required_env("CONTEXTOS_MIGRATION_DATABASE_URL")
+    ensure_test_database()
+    required_test_database_url("CONTEXTOS_TEST_DATABASE_URL", "CONTEXTOS_DATABASE_URL")
+    required_test_database_url(
+        "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+        "CONTEXTOS_MIGRATION_DATABASE_URL",
+    )
     required_env("POSTGRES_APP_USER")
     command.upgrade(build_alembic_config(), "head")
 
@@ -61,7 +62,10 @@ def migrated_database() -> None:
 @pytest.fixture
 async def migration_engine(migrated_database: None) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(
-        required_env("CONTEXTOS_MIGRATION_DATABASE_URL"),
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        ),
         pool_pre_ping=True,
     )
     try:
@@ -107,8 +111,14 @@ def build_client(
                 "environment": "test",
                 "log_level": "INFO",
                 "log_format": "json",
-                "database_url": required_env("CONTEXTOS_DATABASE_URL"),
-                "migration_database_url": required_env("CONTEXTOS_MIGRATION_DATABASE_URL"),
+                "database_url": required_test_database_url(
+                    "CONTEXTOS_TEST_DATABASE_URL",
+                    "CONTEXTOS_DATABASE_URL",
+                ),
+                "migration_database_url": required_test_database_url(
+                    "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+                    "CONTEXTOS_MIGRATION_DATABASE_URL",
+                ),
                 "redis_url": "redis://127.0.0.1:6379/0",
                 "embedding_provider": "fake",
                 "llm_provider": "fake",
@@ -306,7 +316,7 @@ async def test_conversation_question_persists_answer_and_citations(
 
 
 @pytest.mark.asyncio
-async def test_conversations_are_tenant_isolated_and_fallback_on_weak_evidence(
+async def test_conversations_are_tenant_isolated_and_general_without_selected_documents(
     build_client: Callable[..., TestClient],
     migration_engine: AsyncEngine,
 ) -> None:
@@ -338,16 +348,18 @@ async def test_conversations_are_tenant_isolated_and_fallback_on_weak_evidence(
             f"/api/v1/conversations/{conversation_id}",
             headers={"Authorization": "Bearer user-b"},
         )
-        fallback = client.post(
+        general = client.post(
             f"/api/v1/conversations/{conversation_id}/messages",
             headers={"Authorization": "Bearer user-a"},
             json={"question": "What is not in the files?"},
         )
 
     assert cross_tenant.status_code == 404
-    assert fallback.status_code == 200
-    assert fallback.json()["evidence_status"] == "insufficient_evidence"
-    assert fallback.json()["message"]["citations"] == []
+    assert general.status_code == 200
+    assert general.json()["source_mode"] == "general"
+    assert general.json()["message"]["citations"] == []
+    assert general.json()["message"]["memory_references"] == []
+    assert general.json()["message"]["content"].startswith("General answer:")
 
 
 @pytest.mark.asyncio
@@ -503,10 +515,10 @@ async def test_normal_selected_factual_query_still_uses_similarity_threshold(
             f"/api/v1/conversations/{conversation['id']}/messages",
             headers={"Authorization": "Bearer user-a"},
             json={"question": "Who signed the agreement?", "document_ids": [str(DOCUMENT_A)]},
-        )
+    )
 
     assert answer.status_code == 200
-    assert answer.json()["evidence_status"] == "insufficient_evidence"
+    assert answer.json()["source_mode"] == "insufficient_evidence"
     assert answer.json()["message"]["citations"] == []
 
 
@@ -538,7 +550,7 @@ async def test_broad_question_without_selected_documents_does_not_bypass_thresho
         )
 
     assert answer.status_code == 200
-    assert answer.json()["evidence_status"] == "insufficient_evidence"
+    assert answer.json()["source_mode"] == "general"
     assert answer.json()["message"]["citations"] == []
 
 
@@ -914,6 +926,40 @@ def test_conversation_rename_validates_and_is_tenant_isolated(
     assert renamed.json()["updated_at"] != conversation["updated_at"]
 
 
+def test_conversation_archive_unarchive_updates_default_history(
+    build_client: Callable[..., TestClient],
+) -> None:
+    with build_client() as client:
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Archive me"},
+        ).json()
+        archived = client.post(
+            f"/api/v1/conversations/{conversation['id']}/archive",
+            headers={"Authorization": "Bearer user-a"},
+        )
+        active_list = client.get(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+        )
+        archive_list = client.get(
+            "/api/v1/conversations?archived=true",
+            headers={"Authorization": "Bearer user-a"},
+        )
+        restored = client.post(
+            f"/api/v1/conversations/{conversation['id']}/unarchive",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert archived.status_code == 200
+    assert archived.json()["archived_at"] is not None
+    assert active_list.json()["conversations"] == []
+    assert archive_list.json()["conversations"][0]["id"] == conversation["id"]
+    assert restored.status_code == 200
+    assert restored.json()["archived_at"] is None
+
+
 def test_monthly_usage_limit_is_enforced(build_client: Callable[..., TestClient]) -> None:
     with build_client(ai_daily_message_limit=5, ai_monthly_message_limit=1) as client:
         conversation = client.post(
@@ -935,3 +981,595 @@ def test_monthly_usage_limit_is_enforced(build_client: Callable[..., TestClient]
     assert first.status_code == 200
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "monthly_ai_message_limit_reached"
+
+
+def test_memory_manual_lifecycle_is_authenticated_and_tenant_scoped(
+    build_client: Callable[..., TestClient],
+) -> None:
+    with build_client(memory_retrieval_similarity_threshold=0.1) as client:
+        unauthenticated = client.post(
+            "/api/v1/memories",
+            json={"memory_type": "preference", "content": "renewal preference concise"},
+        )
+        created = client.post(
+            "/api/v1/memories",
+            headers={"Authorization": "Bearer user-a"},
+            json={"memory_type": "preference", "content": "renewal preference concise"},
+        )
+        memory_id = created.json()["id"]
+        cross_tenant = client.post(
+            f"/api/v1/memories/{memory_id}/disable",
+            headers={"Authorization": "Bearer user-b"},
+        )
+        disabled = client.post(
+            f"/api/v1/memories/{memory_id}/disable",
+            headers={"Authorization": "Bearer user-a"},
+        )
+        enabled = client.post(
+            f"/api/v1/memories/{memory_id}/enable",
+            headers={"Authorization": "Bearer user-a"},
+        )
+        deleted = client.delete(
+            f"/api/v1/memories/{memory_id}",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert unauthenticated.status_code == 401
+    assert created.status_code == 201
+    assert created.json()["status"] == "approved"
+    assert cross_tenant.status_code == 404
+    assert disabled.status_code == 200
+    assert disabled.json()["status"] == "disabled"
+    assert enabled.status_code == 200
+    assert enabled.json()["status"] == "approved"
+    assert deleted.status_code == 204
+
+
+def test_memory_suggestions_require_user_authored_explicit_intent(
+    build_client: Callable[..., TestClient],
+) -> None:
+    statement = (
+        "Remember that my preferred deployment target is a browser-installable PWA "
+        "before any native app."
+    )
+    with build_client() as client:
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Memory suggestions"},
+        ).json()
+        suggested = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": statement},
+        )
+        secret = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": "Remember that my password is swordfish."},
+        )
+        suggestions = client.get(
+            "/api/v1/memories/suggestions",
+            headers={"Authorization": "Bearer user-a"},
+        )
+        memory = suggestions.json()["memories"][0]
+        approved = client.post(
+            f"/api/v1/memories/{memory['id']}/approve",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert suggested.status_code == 200
+    assert suggested.json()["source_mode"] == "memory_suggestion_created"
+    assert suggested.json()["message"]["content"] == (
+        "Memory suggestion created. Awaiting approval before it can influence answers."
+    )
+    assert suggested.json()["message"]["citations"] == []
+    assert suggested.json()["usage"]["daily"]["used"] == 0
+    assert secret.status_code == 200
+    assert len(suggestions.json()["memories"]) == 1
+    assert suggestions.json()["memories"][0]["status"] == "suggested"
+    assert suggestions.json()["memories"][0]["memory_type"] == "preference"
+    assert suggestions.json()["memories"][0]["source_conversation_id"] == conversation["id"]
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+
+
+@pytest.mark.parametrize(
+    ("prompt", "memory_type"),
+    [
+        ("Save this deployment target is browser install first.", "other"),
+        ("I prefer concise renewal summaries.", "preference"),
+        ("My goal is launch the private beta this month.", "goal"),
+        ("I decided to avoid native wrappers for now.", "decision"),
+        ("From now on keep answers under five bullets.", "preference"),
+    ],
+)
+def test_explicit_memory_save_commands_still_create_suggestions(
+    build_client: Callable[..., TestClient],
+    prompt: str,
+    memory_type: str,
+) -> None:
+    with build_client() as client:
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Explicit saves"},
+        ).json()
+        response = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": prompt},
+        )
+        suggestions = client.get(
+            "/api/v1/memories/suggestions",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["source_mode"] == "memory_suggestion_created"
+    assert suggestions.json()["memories"][0]["memory_type"] == memory_type
+
+
+def test_duplicate_valid_save_statement_does_not_create_duplicates(
+    build_client: Callable[..., TestClient],
+) -> None:
+    prompt = "Remember that I prefer dark mode."
+    with build_client() as client:
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Duplicate saves"},
+        ).json()
+        first = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": prompt},
+        )
+        second = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": prompt},
+        )
+        suggestions = client.get(
+            "/api/v1/memories/suggestions",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["source_mode"] == "memory_suggestion_created"
+    assert second.json()["source_mode"] == "memory_suggestion_created"
+    assert len(suggestions.json()["memories"]) == 1
+
+
+def test_memory_question_forms_do_not_create_suggestions(
+    build_client: Callable[..., TestClient],
+) -> None:
+    questions = [
+        "What is my goal?",
+        "What did I decide?",
+        "Do you remember what I prefer?",
+    ]
+    with build_client(memory_retrieval_similarity_threshold=0.1) as client:
+        client.post(
+            "/api/v1/memories",
+            headers={"Authorization": "Bearer user-a"},
+            json={"memory_type": "preference", "content": "deployment target browser install"},
+        )
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Memory questions"},
+        ).json()
+        responses = [
+            client.post(
+                f"/api/v1/conversations/{conversation['id']}/messages",
+                headers={"Authorization": "Bearer user-a"},
+                json={"question": question},
+            )
+            for question in questions
+        ]
+        suggestions = client.get(
+            "/api/v1/memories/suggestions",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert suggestions.json()["memories"] == []
+    for response in responses:
+        assert response.status_code == 200
+
+
+def test_memory_aware_question_uses_approved_memory_without_creating_suggestion(
+    build_client: Callable[..., TestClient],
+) -> None:
+    with build_client(memory_retrieval_similarity_threshold=0.1) as client:
+        client.post(
+            "/api/v1/memories",
+            headers={"Authorization": "Bearer user-a"},
+            json={
+                "memory_type": "preference",
+                "content": (
+                    "my preferred deployment target is a browser-installable PWA before any "
+                    "native app."
+                ),
+            },
+        )
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Memory retrieval"},
+        ).json()
+        response = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": "What deployment target do I prefer?"},
+        )
+        suggestions = client.get(
+            "/api/v1/memories/suggestions",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["source_mode"] == "memory"
+    assert response.json()["message"]["citations"] == []
+    assert response.json()["message"]["content"] == (
+        "Your preferred deployment target is a browser-installable PWA before any native app."
+    )
+    assert response.json()["message"]["memory_references"][0]["content"] == (
+        "my preferred deployment target is a browser-installable PWA before any native app."
+    )
+    assert suggestions.json()["memories"] == []
+
+
+def test_approved_memory_is_returned_separately_from_document_citations(
+    build_client: Callable[..., TestClient],
+) -> None:
+    with build_client(memory_retrieval_similarity_threshold=0.1) as client:
+        created = client.post(
+            "/api/v1/memories",
+            headers={"Authorization": "Bearer user-a"},
+            json={"memory_type": "preference", "content": "renewal preference concise"},
+        )
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Memory answer"},
+        ).json()
+        answer = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": "renewal"},
+        )
+        client.post(
+            f"/api/v1/memories/{created.json()['id']}/disable",
+            headers={"Authorization": "Bearer user-a"},
+        )
+        after_disable = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": "renewal"},
+        )
+
+    assert answer.status_code == 200
+    assert answer.json()["memory_used"] is True
+    assert answer.json()["source_mode"] == "memory"
+    assert answer.json()["message"]["citations"] == []
+    assert answer.json()["message"]["memory_references"][0]["content"] == (
+        "renewal preference concise"
+    )
+    assert "Remembered information" in answer.json()["message"]["content"]
+    assert after_disable.status_code == 200
+    assert after_disable.json()["memory_used"] is False
+    assert after_disable.json()["source_mode"] == "general"
+    assert after_disable.json()["message"]["memory_references"] == []
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "?",
+        "!!!",
+        "Save this ?",
+        "Remember that",
+        "Remember that ?",
+        "Save this",
+        "Remember that ???",
+    ],
+)
+def test_malformed_memory_suggestion_content_is_rejected(
+    build_client: Callable[..., TestClient],
+    prompt: str,
+) -> None:
+    with build_client() as client:
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Malformed saves"},
+        ).json()
+        response = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": prompt},
+        )
+        suggestions = client.get(
+            "/api/v1/memories/suggestions",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert response.status_code == 200
+    assert suggestions.json()["memories"] == []
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "?",
+        "!!!",
+        "Remember that",
+    ],
+)
+def test_punctuation_only_or_bare_content_is_rejected(
+    build_client: Callable[..., TestClient],
+    prompt: str,
+) -> None:
+    with build_client() as client:
+        response = client.post(
+            "/api/v1/memories",
+            headers={"Authorization": "Bearer user-a"},
+            json={"memory_type": "other", "content": prompt},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["?", "Remember that"])
+async def test_malformed_suggestion_cannot_be_approved(
+    build_client: Callable[..., TestClient],
+    migration_engine: AsyncEngine,
+    content: str,
+) -> None:
+    with build_client() as client:
+        memory_id = UUID("71000000-0000-4000-8000-000000000001")
+        conversation_id = UUID("72000000-0000-4000-8000-000000000001")
+        message_id = UUID("73000000-0000-4000-8000-000000000001")
+        async with migration_engine.begin() as connection:
+            await connection.execute(text("SELECT set_config('app.actor_role', 'admin', true)"))
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO users (id, email, role, status)
+                    VALUES (:user_id, :email, 'user', 'active')
+                    ON CONFLICT (id) DO NOTHING
+                    """
+                ),
+                {"user_id": str(USER_A), "email": "user-a@example.test"},
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO conversations (id, user_id, title)
+                    VALUES (:conversation_id, :user_id, 'Invalid memory source')
+                    """
+                ),
+                {"conversation_id": str(conversation_id), "user_id": str(USER_A)},
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO messages (
+                      id, conversation_id, user_id, role, content, status
+                    )
+                    VALUES (
+                      :message_id, :conversation_id, :user_id, 'user', 'seed', 'completed'
+                    )
+                    """
+                ),
+                {
+                    "message_id": str(message_id),
+                    "conversation_id": str(conversation_id),
+                    "user_id": str(USER_A),
+                },
+            )
+            await connection.execute(
+                    text(
+                        """
+                        INSERT INTO memories (
+                          id, user_id, memory_type, content, status, source_kind,
+                          source_conversation_id, source_message_id, content_sha256
+                        )
+                        VALUES (
+                          :memory_id, :user_id, 'preference', :content, 'suggested',
+                          'conversation', :conversation_id, :message_id, repeat('a', 64)
+                        )
+                        """
+                    ),
+                        {
+                            "memory_id": str(memory_id),
+                            "user_id": str(USER_A),
+                            "conversation_id": str(conversation_id),
+                            "message_id": str(message_id),
+                            "content": content,
+                        },
+                    )
+        approval = client.post(
+            f"/api/v1/memories/{memory_id}/approve",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert approval.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_documents_and_memory_response_keeps_sources_separate(
+    build_client: Callable[..., TestClient],
+    migration_engine: AsyncEngine,
+) -> None:
+    with build_client(memory_retrieval_similarity_threshold=0.1) as client:
+        settings = cast(Any, client.app).state.settings
+        await seed_document(
+            migration_engine,
+            settings=settings,
+            user_id=USER_A,
+            document_id=DOCUMENT_A,
+            filename="deployment.pdf",
+            content="Deployment docs say browser install is supported with a service worker.",
+        )
+        client.post(
+            "/api/v1/memories",
+            headers={"Authorization": "Bearer user-a"},
+            json={"memory_type": "preference", "content": "deployment target browser install"},
+        )
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Combined"},
+        ).json()
+        answer = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": "deployment browser install", "document_ids": [str(DOCUMENT_A)]},
+        )
+
+    payload = answer.json()
+    assert answer.status_code == 200
+    assert payload["source_mode"] == "documents_and_memory"
+    assert payload["message"]["citations"][0]["document_id"] == str(DOCUMENT_A)
+    assert payload["message"]["memory_references"][0]["content"] == (
+        "deployment target browser install"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_returns_tenant_scoped_counts_and_recent_items(
+    build_client: Callable[..., TestClient],
+    migration_engine: AsyncEngine,
+) -> None:
+    with build_client() as client:
+        settings = cast(Any, client.app).state.settings
+        await seed_document(
+            migration_engine,
+            settings=settings,
+            user_id=USER_A,
+            document_id=DOCUMENT_A,
+            filename="alpha.pdf",
+            content="Alpha content",
+        )
+        await seed_document(
+            migration_engine,
+            settings=settings,
+            user_id=USER_A,
+            document_id=DOCUMENT_B,
+            filename="beta.pdf",
+            content="Beta content",
+        )
+        await mark_document_deleted(migration_engine, user_id=USER_A, document_id=DOCUMENT_B)
+        client.post(
+            "/api/v1/memories",
+            headers={"Authorization": "Bearer user-a"},
+            json={"memory_type": "preference", "content": "alpha preference"},
+        )
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Dashboard conversation"},
+        ).json()
+        client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": "Remember that I prefer concise answers."},
+        )
+        client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-b"},
+            json={"title": "Other tenant"},
+        )
+
+        response = client.get("/api/v1/dashboard", headers={"Authorization": "Bearer user-a"})
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    payload = response.json()
+    assert payload["counts"] == {
+        "active_documents": 1,
+        "active_conversations": 1,
+        "approved_memories": 1,
+        "pending_suggestions": 1,
+    }
+    assert payload["recent_documents"][0]["original_filename"] == "alpha.pdf"
+    assert len(payload["recent_documents"]) == 1
+    assert payload["recent_conversations"][0]["title"] == "Dashboard conversation"
+    assert payload["recent_memories"][0]["content"] == "alpha preference"
+    assert payload["pending_suggestions"][0]["status"] == "suggested"
+
+
+@pytest.mark.parametrize(
+    ("question", "expected_prefix"),
+    [
+        ("How many documents do I have?", "You have 1 document."),
+        ("What files are in my library?", "Your library contains: alpha.pdf."),
+        ("How many conversations do I have?", "You have 1 conversation."),
+        (
+            "How many approved, suggested, or disabled memories do I have?",
+            "You have 1 approved, 1 suggested, and 0 disabled memories.",
+        ),
+        ("What is my usage today?", "Today you have used 0 of 20. 20 remaining."),
+        ("What is my monthly usage?", "This month you have used 0 of 200. 200 remaining."),
+    ],
+)
+@pytest.mark.asyncio
+async def test_workspace_state_intents_are_contextos_only_and_skip_provider_calls(
+    build_client: Callable[..., TestClient],
+    migration_engine: AsyncEngine,
+    question: str,
+    expected_prefix: str,
+) -> None:
+    with build_client(llm_provider="gemini", embedding_provider="fake") as client:
+        settings = cast(Any, client.app).state.settings
+        await seed_document(
+            migration_engine,
+            settings=settings,
+            user_id=USER_A,
+            document_id=DOCUMENT_A,
+            filename="alpha.pdf",
+            content="Alpha content",
+        )
+        async with migration_engine.begin() as connection:
+            await connection.execute(text("SELECT set_config('app.actor_role', 'admin', true)"))
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO memories (
+                      user_id, memory_type, content, status, source_kind, content_sha256
+                    )
+                    VALUES
+                      (
+                        :user_id, 'preference', 'alpha preference',
+                        'approved', 'manual', repeat('a', 64)
+                      ),
+                      (
+                        :user_id, 'preference', 'needs review',
+                        'suggested', 'manual', repeat('b', 64)
+                      )
+                    """
+                ),
+                {"user_id": str(USER_A)},
+            )
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "Workspace state"},
+        ).json()
+        response = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": question},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_mode"] == "contextos"
+    assert payload["message"]["source_mode"] == "contextos"
+    assert payload["message"]["content"] == expected_prefix
+    assert payload["message"]["citations"] == []
+    assert payload["message"]["memory_references"] == []

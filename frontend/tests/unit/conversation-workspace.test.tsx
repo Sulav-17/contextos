@@ -11,10 +11,12 @@ import type {
 } from "@/lib/api/types";
 
 vi.mock("@/features/conversations/actions", () => ({
+  archiveConversationAction: vi.fn(() => ({ status: "idle", message: "" })),
   createConversationAction: vi.fn(() => ({ status: "idle", message: "" })),
   deleteConversationAction: vi.fn(() => ({ status: "idle", message: "" })),
   renameConversationAction: vi.fn(() => ({ status: "idle", message: "" })),
   submitQuestionAction: vi.fn(() => new Promise(() => undefined)),
+  unarchiveConversationAction: vi.fn(() => ({ status: "idle", message: "" })),
 }));
 
 function document(overrides: Partial<DocumentMetadata> = {}): DocumentMetadata {
@@ -46,6 +48,7 @@ const summary: ConversationSummary = {
   title: "Research",
   created_at: "2026-07-01T12:00:00Z",
   updated_at: "2026-07-01T12:00:00Z",
+  archived_at: null,
 };
 
 function conversation(overrides: Partial<ConversationDetail> = {}): ConversationDetail {
@@ -59,6 +62,8 @@ function conversation(overrides: Partial<ConversationDetail> = {}): Conversation
         content: "Based on your documents, ContextOS stores private PDFs.",
         status: "completed",
         created_at: "2026-07-01T12:00:00Z",
+        memory_references: [],
+        source_mode: "documents",
         citations: [
           {
             citation_index: 1,
@@ -85,6 +90,7 @@ describe("ConversationWorkspace", () => {
     render(
       <ConversationWorkspace
         activeConversation={conversation()}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -94,6 +100,7 @@ describe("ConversationWorkspace", () => {
     expect(screen.getByRole("button", { name: /new conversation/i })).toHaveClass("touch-target");
     expect(screen.getByText("Today: 19/20")).toBeInTheDocument();
     expect(screen.getByLabelText("research.pdf")).toHaveAttribute("name", "document_ids");
+    expect(screen.getByText("Used 1 document")).toBeInTheDocument();
     expect(screen.getByText("[1] research.pdf, page 2")).toBeInTheDocument();
     expect(screen.getByText("ContextOS stores private PDFs.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /rename conversation/i })).toBeInTheDocument();
@@ -110,10 +117,13 @@ describe("ConversationWorkspace", () => {
               content: "I could not find enough evidence in your documents to answer that.",
               status: "completed",
               created_at: "2026-07-01T12:00:00Z",
+              memory_references: [],
+              source_mode: "insufficient_evidence",
               citations: [],
             },
           ],
         })}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[]}
         usage={{
@@ -126,14 +136,120 @@ describe("ConversationWorkspace", () => {
     expect(screen.getByText("Today: 20/20")).toBeInTheDocument();
     expect(screen.getByText("Month: 200/200")).toBeInTheDocument();
     expect(screen.getByText(/could not find enough evidence/i)).toBeInTheDocument();
-    expect(screen.getByText("No retrieval-ready PDFs.")).toBeInTheDocument();
+    expect(screen.getByText(/Document selection is optional/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+  });
+
+  it("enables non-empty chat with zero PDFs and shows dynamic helper text", async () => {
+    vi.mocked(submitQuestionAction).mockResolvedValueOnce({
+      status: "success",
+      message: "Answer added.",
+    });
+    render(
+      <ConversationWorkspace
+        activeConversation={conversation({ messages: [] })}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[]}
+        usage={usage}
+      />,
+    );
+
+    expect(screen.getAllByText(/Ask anything, use saved memory/i).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Question"), {
+      target: { value: "What is a PWA?" },
+    });
+    expect(screen.getByRole("button", { name: /send/i })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => expect(submitQuestionAction).toHaveBeenCalledTimes(1));
+    const formData = vi.mocked(submitQuestionAction).mock.calls[0]?.[1] as FormData;
+    expect(formData.getAll("document_ids")).toEqual([]);
+  });
+
+  it("renders memory suggestion and memory badges distinctly", () => {
+    render(
+      <ConversationWorkspace
+        activeConversation={conversation({
+          messages: [
+            {
+              id: "61000000-0000-4000-8000-000000000010",
+              role: "assistant",
+              content: "Memory suggestion created. Awaiting approval before it can influence answers.",
+              status: "completed",
+              created_at: "2026-07-01T12:00:00Z",
+              memory_references: [],
+              source_mode: "memory_suggestion_created",
+              citations: [],
+            },
+            {
+              id: "61000000-0000-4000-8000-000000000011",
+              role: "assistant",
+              content: "Remembered information: deployment target browser install",
+              status: "completed",
+              created_at: "2026-07-01T12:01:00Z",
+              memory_references: [
+                {
+                  id: "70000000-0000-4000-8000-000000000001",
+                  memory_type: "preference",
+                  content: "deployment target browser install",
+                  source_conversation_id: null,
+                  source_conversation_title: null,
+                },
+              ],
+              source_mode: "memory",
+              citations: [],
+            },
+          ],
+        })}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[]}
+        usage={usage}
+      />,
+    );
+
+    expect(screen.getByText("Memory suggestion created")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /review in memories/i })).toHaveAttribute(
+      "href",
+      "/memories",
+    );
+    expect(screen.getAllByText("Used saved memory")[0]).toBeInTheDocument();
+  });
+
+  it("renders the ContextOS data badge and inspector state", () => {
+    render(
+      <ConversationWorkspace
+        activeConversation={conversation({
+          messages: [
+            {
+              id: "61000000-0000-4000-8000-000000000012",
+              role: "assistant",
+              content: "You have 2 conversations.",
+              status: "completed",
+              created_at: "2026-07-01T12:02:00Z",
+              memory_references: [],
+              source_mode: "contextos",
+              citations: [],
+            },
+          ],
+        })}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[]}
+        usage={usage}
+      />,
+    );
+
+    expect(screen.getAllByText("ContextOS data")[0]).toBeInTheDocument();
+    expect(screen.getByText("Authenticated workspace metadata was used.")).toBeInTheDocument();
   });
 
   it("shows the thinking assistant state during question submission", async () => {
     render(
       <ConversationWorkspace
         activeConversation={conversation()}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -147,10 +263,32 @@ describe("ConversationWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
 
     expect(await screen.findByText("Assistant status: retrieving document")).toBeInTheDocument();
-    expect(globalThis.document.querySelector(".assistant-orb")).toHaveAttribute(
+    expect(globalThis.document.querySelector('.assistant-orb[data-state="thinking"]')).toBeTruthy();
+    expect(globalThis.document.querySelector('.assistant-orb[data-state="thinking"]')).toHaveAttribute(
       "data-state",
       "thinking",
     );
+  });
+
+  it("guards against duplicate submit clicks while pending", async () => {
+    render(
+      <ConversationWorkspace
+        activeConversation={conversation()}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Question"), {
+      target: { value: "What evidence supports this?" },
+    });
+    const button = screen.getByRole("button", { name: /send/i });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => expect(submitQuestionAction).toHaveBeenCalledTimes(1));
   });
 
   it("includes selected document ids in the submit payload", async () => {
@@ -162,6 +300,7 @@ describe("ConversationWorkspace", () => {
     render(
       <ConversationWorkspace
         activeConversation={conversation()}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -191,6 +330,7 @@ describe("ConversationWorkspace", () => {
     const { rerender } = render(
       <ConversationWorkspace
         activeConversation={selected}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -214,6 +354,8 @@ describe("ConversationWorkspace", () => {
               content: "Summarize this document.",
               status: "accepted",
               created_at: "2026-07-01T12:02:00Z",
+              memory_references: [],
+              source_mode: "general",
               citations: [],
             },
             {
@@ -222,10 +364,13 @@ describe("ConversationWorkspace", () => {
               content: "A grounded summary.",
               status: "completed",
               created_at: "2026-07-01T12:03:00Z",
+              memory_references: [],
+              source_mode: "general",
               citations: [],
             },
           ],
         })}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -247,6 +392,7 @@ describe("ConversationWorkspace", () => {
     render(
       <ConversationWorkspace
         activeConversation={selected}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -274,6 +420,7 @@ describe("ConversationWorkspace", () => {
     const { rerender } = render(
       <ConversationWorkspace
         activeConversation={selected}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -293,10 +440,13 @@ describe("ConversationWorkspace", () => {
               content: "A refreshed answer.",
               status: "completed",
               created_at: "2026-07-01T12:02:00Z",
+              memory_references: [],
+              source_mode: "general",
               citations: [],
             },
           ],
         })}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -324,6 +474,7 @@ describe("ConversationWorkspace", () => {
     const { rerender } = render(
       <ConversationWorkspace
         activeConversation={conversation()}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -336,6 +487,7 @@ describe("ConversationWorkspace", () => {
     rerender(
       <ConversationWorkspace
         activeConversation={conversation()}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
@@ -362,15 +514,134 @@ describe("ConversationWorkspace", () => {
               content: "Keep this draft.",
               status: "accepted",
               created_at: "2026-07-01T12:02:00Z",
+              memory_references: [],
+              source_mode: "general",
               citations: [],
             },
           ],
         })}
+        archivedConversations={[]}
         conversations={[summary]}
         documents={[document()]}
         usage={usage}
       />,
     );
     await waitFor(() => expect(screen.getByLabelText("Question")).toHaveValue(""));
+  });
+
+  it("scrolls to the newest message when the user is already near the bottom", async () => {
+    const firstConversation = conversation({
+      messages: [
+        {
+          id: "61000000-0000-4000-8000-000000000020",
+          role: "assistant",
+          content: "First answer",
+          status: "completed",
+          created_at: "2026-07-01T12:00:00Z",
+          memory_references: [],
+          source_mode: "general",
+          citations: [],
+        },
+      ],
+    });
+    const { rerender } = render(
+      <ConversationWorkspace
+        activeConversation={firstConversation}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    const history = screen.getByTestId("conversation-history");
+    Object.defineProperty(history, "scrollHeight", { configurable: true, value: 400 });
+    Object.defineProperty(history, "clientHeight", { configurable: true, value: 200 });
+    Object.defineProperty(history, "scrollTop", { configurable: true, writable: true, value: 160 });
+    fireEvent.scroll(history);
+
+    rerender(
+      <ConversationWorkspace
+        activeConversation={conversation({
+          messages: [
+            ...firstConversation.messages,
+            {
+              id: "61000000-0000-4000-8000-000000000021",
+              role: "assistant",
+              content: "Newest answer",
+              status: "completed",
+              created_at: "2026-07-01T12:01:00Z",
+              memory_references: [],
+              source_mode: "general",
+              citations: [],
+            },
+          ],
+        })}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    await waitFor(() => expect((history as HTMLDivElement).scrollTop).toBe(400));
+  });
+
+  it("does not force-scroll when the user has moved up in history", async () => {
+    const firstConversation = conversation({
+      messages: [
+        {
+          id: "61000000-0000-4000-8000-000000000030",
+          role: "assistant",
+          content: "First answer",
+          status: "completed",
+          created_at: "2026-07-01T12:00:00Z",
+          memory_references: [],
+          source_mode: "general",
+          citations: [],
+        },
+      ],
+    });
+    const { rerender } = render(
+      <ConversationWorkspace
+        activeConversation={firstConversation}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    const history = screen.getByTestId("conversation-history");
+    Object.defineProperty(history, "scrollHeight", { configurable: true, value: 400 });
+    Object.defineProperty(history, "clientHeight", { configurable: true, value: 200 });
+    Object.defineProperty(history, "scrollTop", { configurable: true, writable: true, value: 0 });
+    fireEvent.scroll(history);
+
+    rerender(
+      <ConversationWorkspace
+        activeConversation={conversation({
+          messages: [
+            ...firstConversation.messages,
+            {
+              id: "61000000-0000-4000-8000-000000000031",
+              role: "assistant",
+              content: "Newest answer",
+              status: "completed",
+              created_at: "2026-07-01T12:01:00Z",
+              memory_references: [],
+              source_mode: "general",
+              citations: [],
+            },
+          ],
+        })}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    await waitFor(() => expect((history as HTMLDivElement).scrollTop).toBe(0));
   });
 });

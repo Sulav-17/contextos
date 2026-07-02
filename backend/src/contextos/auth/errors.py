@@ -112,3 +112,13 @@ AI_PROVIDER_UNAVAILABLE = ApiErrorSpec(
     message="The AI provider is temporarily unavailable.",
     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
 )
+MEMORY_NOT_FOUND = ApiErrorSpec(
+    code="memory_not_found",
+    message="Memory not found.",
+    status_code=status.HTTP_404_NOT_FOUND,
+)
+MEMORY_DUPLICATE = ApiErrorSpec(
+    code="memory_duplicate",
+    message="That memory already exists.",
+    status_code=status.HTTP_409_CONFLICT,
+)

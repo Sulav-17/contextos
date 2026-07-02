@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, Final, cast
@@ -20,6 +19,7 @@ from sqlalchemy.ext.asyncio import (
 from alembic import command
 from alembic.config import Config
 from contextos.infrastructure.tenant_context import set_tenant_context
+from tests.support import ensure_test_database, required_env, required_test_database_url
 
 USER_A: Final = UUID("40000000-0000-4000-8000-000000000001")
 USER_B: Final = UUID("40000000-0000-4000-8000-000000000002")
@@ -29,31 +29,37 @@ CONVERSATION_A: Final = UUID("42000000-0000-4000-8000-000000000001")
 CONVERSATION_B: Final = UUID("42000000-0000-4000-8000-000000000002")
 
 
-def required_env(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        pytest.fail(f"{name} is required for PostgreSQL-backed document RLS tests.")
-    return value
-
-
 def build_alembic_config() -> Config:
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
-    config.set_main_option("sqlalchemy.url", required_env("CONTEXTOS_MIGRATION_DATABASE_URL"))
+    config.set_main_option(
+        "sqlalchemy.url",
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        ),
+    )
     return config
 
 
 @pytest.fixture(scope="session")
 def migrated_database() -> None:
-    required_env("CONTEXTOS_DATABASE_URL")
-    required_env("CONTEXTOS_MIGRATION_DATABASE_URL")
+    ensure_test_database()
+    required_test_database_url("CONTEXTOS_TEST_DATABASE_URL", "CONTEXTOS_DATABASE_URL")
+    required_test_database_url(
+        "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+        "CONTEXTOS_MIGRATION_DATABASE_URL",
+    )
     required_env("POSTGRES_APP_USER")
     command.upgrade(build_alembic_config(), "head")
 
 
 @pytest.fixture
 async def runtime_engine(migrated_database: None) -> AsyncGenerator[AsyncEngine]:
-    engine = create_async_engine(required_env("CONTEXTOS_DATABASE_URL"), pool_pre_ping=True)
+    engine = create_async_engine(
+        required_test_database_url("CONTEXTOS_TEST_DATABASE_URL", "CONTEXTOS_DATABASE_URL"),
+        pool_pre_ping=True,
+    )
     try:
         yield engine
     finally:
@@ -63,7 +69,10 @@ async def runtime_engine(migrated_database: None) -> AsyncGenerator[AsyncEngine]
 @pytest.fixture
 async def migration_engine(migrated_database: None) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(
-        required_env("CONTEXTOS_MIGRATION_DATABASE_URL"),
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        ),
         pool_pre_ping=True,
     )
     try:

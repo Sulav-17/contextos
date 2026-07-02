@@ -1,10 +1,14 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Archive,
+  ChevronRight,
   MessageCirclePlus,
   PanelLeft,
+  PanelRight,
   Pencil,
+  RotateCcw,
   Save,
   Search,
   Send,
@@ -15,12 +19,15 @@ import {
 import { AssistantOrb } from "@/components/assistant/assistant-orb";
 import {
   createConversationAction,
+  archiveConversationAction,
   deleteConversationAction,
   renameConversationAction,
   submitQuestionAction,
+  unarchiveConversationAction,
 } from "@/features/conversations/actions";
 import type {
   ConversationDetail,
+  ConversationMessage,
   ConversationSummary,
   DocumentMetadata,
   UsageStatus,
@@ -33,13 +40,39 @@ function formatUsage(bucket: { used: number; limit: number }): string {
   return `${bucket.used}/${bucket.limit}`;
 }
 
+function sourceBadge(message: ConversationMessage): string {
+  if (message.source_mode === "memory_suggestion_created") {
+    return "Memory suggestion created";
+  }
+  if (message.source_mode === "contextos") {
+    return "ContextOS data";
+  }
+  if (message.source_mode === "general") {
+    return "General answer";
+  }
+  if (message.source_mode === "memory") {
+    return "Used saved memory";
+  }
+  if (message.source_mode === "documents") {
+    const count = new Set(message.citations.map((citation) => citation.document_id)).size;
+    return `Used ${count} ${count === 1 ? "document" : "documents"}`;
+  }
+  if (message.source_mode === "documents_and_memory") {
+    const count = new Set(message.citations.map((citation) => citation.document_id)).size;
+    return `Used memory + ${count} ${count === 1 ? "document" : "documents"}`;
+  }
+  return "Not enough evidence";
+}
+
 export function ConversationWorkspace({
   conversations,
+  archivedConversations,
   activeConversation,
   documents,
   usage,
 }: {
   conversations: ConversationSummary[];
+  archivedConversations: ConversationSummary[];
   activeConversation: ConversationDetail | null;
   documents: DocumentMetadata[];
   usage: UsageStatus;
@@ -50,9 +83,14 @@ export function ConversationWorkspace({
     idleChatState,
   );
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<"active" | "archived">("active");
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
+  const historyRef = useRef<HTMLDivElement | null>(null);
+  const isNearBottomRef = useRef(true);
+  const submittingRef = useRef(false);
   const [submittedMessageCount, setSubmittedMessageCount] = useState<number | null>(null);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>(
     activeConversation?.selected_document_ids ?? [],
@@ -67,13 +105,22 @@ export function ConversationWorkspace({
   );
   const selectedScopeKey = (activeConversation?.selected_document_ids ?? []).join("|");
   const filteredConversations = useMemo(
-    () =>
-      conversations.filter((conversation) =>
+    () => {
+      const source = historyFilter === "active" ? conversations : archivedConversations;
+      return source.filter((conversation) =>
         conversation.title.toLowerCase().includes(query.trim().toLowerCase()),
-      ),
-    [conversations, query],
+      );
+    },
+    [archivedConversations, conversations, historyFilter, query],
   );
   const activeConversationId = activeConversation?.id ?? "";
+  const helperText =
+    selectedDocumentIds.length > 0
+      ? "Answers will be grounded in the selected PDFs."
+      : "General chat works without PDFs. Select documents when you want cited answers.";
+  const latestAssistantMessage = [...(activeConversation?.messages ?? [])]
+    .reverse()
+    .find((message) => message.role === "assistant");
 
   useEffect(() => {
     if (!activeConversationId) {
@@ -101,6 +148,21 @@ export function ConversationWorkspace({
   }, [activeConversationId, question]);
 
   useEffect(() => {
+    if (!pending) {
+      submittingRef.current = false;
+    }
+  }, [pending]);
+
+  useEffect(() => {
+    const history = historyRef.current;
+    if (!history) {
+      return;
+    }
+    history.scrollTop = history.scrollHeight;
+    isNearBottomRef.current = true;
+  }, [activeConversationId]);
+
+  useEffect(() => {
     const receivedAcceptedResponse =
       submittedMessageCount !== null &&
       activeConversation !== null &&
@@ -115,6 +177,23 @@ export function ConversationWorkspace({
     }, 0);
   }, [activeConversation, activeConversationId, state.status, submittedMessageCount]);
 
+  useEffect(() => {
+    const history = historyRef.current;
+    if (!history || !isNearBottomRef.current) {
+      return;
+    }
+    history.scrollTop = history.scrollHeight;
+  }, [activeConversation?.messages.length, pending]);
+
+  function updateNearBottom() {
+    const history = historyRef.current;
+    if (!history) {
+      return;
+    }
+    const remaining = history.scrollHeight - history.scrollTop - history.clientHeight;
+    isNearBottomRef.current = remaining <= 96;
+  }
+
   function toggleDocument(documentId: string, checked: boolean) {
     setSelectedDocumentIds((current) => {
       if (checked) {
@@ -125,7 +204,7 @@ export function ConversationWorkspace({
   }
 
   const renderConversationList = () => (
-    <div className="quiet-panel surface-enter rounded-lg p-3">
+    <div className="quiet-panel surface-enter flex min-h-0 flex-col rounded-lg p-3">
       <div className="flex items-center gap-2">
         <Search aria-hidden="true" size={16} />
         <input
@@ -136,13 +215,36 @@ export function ConversationWorkspace({
           value={query}
         />
       </div>
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          className={`touch-target rounded-lg border px-3 text-sm ${
+            historyFilter === "active" ? "active-glow" : "border-[var(--border-subtle)]"
+          }`}
+          onClick={() => setHistoryFilter("active")}
+          type="button"
+        >
+          Active
+        </button>
+        <button
+          className={`touch-target rounded-lg border px-3 text-sm ${
+            historyFilter === "archived" ? "active-glow" : "border-[var(--border-subtle)]"
+          }`}
+          onClick={() => setHistoryFilter("archived")}
+          type="button"
+        >
+          Archived
+        </button>
+      </div>
+      <div className="mt-3 min-h-0 space-y-2 overflow-y-auto overflow-x-hidden pr-1">
         {filteredConversations.length === 0 ? (
-          <p className="text-sm text-[var(--text-muted)]">No matching conversations.</p>
+          <p className="text-sm text-[var(--text-muted)]">
+            No matching {historyFilter} conversations.
+          </p>
         ) : (
           filteredConversations.map((conversation) => (
             <a
-              className={`block rounded-lg border px-3 py-2 text-sm ${
+              aria-label={conversation.title}
+              className={`line-clamp-2 block rounded-lg border px-3 py-2 text-sm leading-5 ${
                 activeConversation?.id === conversation.id
                   ? "active-glow"
                   : "border-[var(--border-subtle)]"
@@ -150,6 +252,7 @@ export function ConversationWorkspace({
               href={`/conversations?conversation=${conversation.id}`}
               key={conversation.id}
               onClick={() => setHistoryOpen(false)}
+              title={conversation.title}
             >
               {conversation.title}
             </a>
@@ -160,8 +263,8 @@ export function ConversationWorkspace({
   );
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <aside className="hidden space-y-4 lg:block">
+    <div className="grid min-h-0 gap-5 xl:grid-cols-[18rem_minmax(0,1fr)_22rem]">
+      <aside className="hidden min-h-0 space-y-4 lg:flex lg:flex-col">
         <form action={createConversationAction}>
           <button className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019]">
             <MessageCirclePlus aria-hidden="true" size={18} />
@@ -176,7 +279,7 @@ export function ConversationWorkspace({
         </div>
       </aside>
 
-      <section className="quiet-panel surface-enter min-h-[34rem] rounded-lg p-3 md:p-5">
+      <section className="quiet-panel surface-enter flex min-h-0 flex-col overflow-hidden rounded-lg p-3 md:p-5">
         <div className="mb-4 flex items-center justify-between gap-3 lg:hidden">
           <button
             className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm"
@@ -185,6 +288,14 @@ export function ConversationWorkspace({
           >
             <PanelLeft aria-hidden="true" size={17} />
             History
+          </button>
+          <button
+            className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm xl:hidden"
+            onClick={() => setInspectorOpen(true)}
+            type="button"
+          >
+            <PanelRight aria-hidden="true" size={17} />
+            Context inspector
           </button>
           <form action={createConversationAction}>
             <button className="touch-target inline-flex items-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]">
@@ -200,7 +311,7 @@ export function ConversationWorkspace({
             className="fixed inset-0 z-50 bg-black/50 p-4 lg:hidden"
             role="dialog"
           >
-            <div className="quiet-panel h-full max-w-sm rounded-lg bg-[var(--surface-raised)] p-4">
+            <div className="quiet-panel flex h-full max-w-sm flex-col overflow-hidden rounded-lg bg-[var(--surface-raised)] p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="font-semibold">Conversations</h2>
                 <button
@@ -216,8 +327,31 @@ export function ConversationWorkspace({
             </div>
           </div>
         ) : null}
+        {inspectorOpen && latestAssistantMessage ? (
+          <div
+            aria-label="Context inspector"
+            aria-modal="true"
+            className="fixed inset-0 z-50 bg-black/50 p-4 xl:hidden"
+            role="dialog"
+          >
+            <div className="quiet-panel ml-auto flex h-full max-w-sm flex-col overflow-hidden rounded-lg bg-[var(--surface-raised)] p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-semibold">Context inspector</h2>
+                <button
+                  aria-label="Close context inspector"
+                  className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
+                  onClick={() => setInspectorOpen(false)}
+                  type="button"
+                >
+                  <X aria-hidden="true" size={17} />
+                </button>
+              </div>
+              <ContextInspector message={latestAssistantMessage} />
+            </div>
+          </div>
+        ) : null}
         {activeConversation ? (
-          <div className="flex min-h-[32rem] flex-col gap-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               {isRenaming ? (
                 <form action={renameAction} className="flex flex-1 flex-col gap-2 sm:flex-row">
@@ -250,7 +384,9 @@ export function ConversationWorkspace({
                 </form>
               ) : (
                 <div className="flex min-w-0 items-center gap-2">
-                  <h2 className="truncate text-xl font-semibold">{activeConversation.title}</h2>
+                  <h2 className="text-xl font-semibold" title={activeConversation.title}>
+                    {activeConversation.title}
+                  </h2>
                   <button
                     aria-label="Rename conversation"
                     className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
@@ -276,17 +412,54 @@ export function ConversationWorkspace({
                 ) : null}
                 <form action={deleteConversationAction}>
                   <input name="conversation_id" type="hidden" value={activeConversation.id} />
-                  <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--status-danger)]">
+                  <button
+                    className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--status-danger)]"
+                    onClick={(event) => {
+                      if (!window.confirm("Delete this conversation?")) {
+                        event.preventDefault();
+                      }
+                    }}
+                  >
                     <Trash2 aria-hidden="true" size={17} />
                     Delete
                   </button>
                 </form>
+                {activeConversation.archived_at ? (
+                  <form action={unarchiveConversationAction}>
+                    <input name="conversation_id" type="hidden" value={activeConversation.id} />
+                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm">
+                      <RotateCcw aria-hidden="true" size={17} />
+                      Restore
+                    </button>
+                  </form>
+                ) : (
+                  <form action={archiveConversationAction}>
+                    <input name="conversation_id" type="hidden" value={activeConversation.id} />
+                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm">
+                      <Archive aria-hidden="true" size={17} />
+                      Archive
+                    </button>
+                  </form>
+                )}
+                <button
+                  className="touch-target hidden items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm xl:inline-flex"
+                  onClick={() => setInspectorOpen(true)}
+                  type="button"
+                >
+                  <PanelRight aria-hidden="true" size={17} />
+                  Context inspector
+                </button>
               </div>
             </div>
-            <div className="flex-1 space-y-3 pb-2">
+            <div
+              className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pb-36 pr-1 md:pb-40"
+              data-testid="conversation-history"
+              onScroll={updateNearBottom}
+              ref={historyRef}
+            >
               {activeConversation.messages.length === 0 ? (
                 <p className="text-sm text-[var(--text-muted)]">
-                  Ask a question grounded in your ready PDFs.
+                  Ask anything, use saved memory, or select PDFs for cited answers.
                 </p>
               ) : (
                 activeConversation.messages.map((message) => (
@@ -301,6 +474,27 @@ export function ConversationWorkspace({
                     <p className="text-xs font-semibold uppercase text-[var(--text-muted)]">
                       {message.role}
                     </p>
+                    {message.role === "assistant" ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                            message.source_mode === "memory_suggestion_created"
+                              ? "border-[var(--status-warning)] text-[var(--status-warning)]"
+                              : "border-[var(--border-subtle)] text-[var(--text-muted)]"
+                          }`}
+                        >
+                          {sourceBadge(message)}
+                        </span>
+                        {message.source_mode === "memory_suggestion_created" ? (
+                          <a
+                            className="rounded-full border border-[var(--border-subtle)] px-2 py-1 text-xs font-semibold underline"
+                            href="/memories"
+                          >
+                            Review in Memories
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
                     {message.citations.length > 0 ? (
                       <div className="mt-3 space-y-2">
@@ -320,23 +514,61 @@ export function ConversationWorkspace({
                         ))}
                       </div>
                     ) : null}
+                    {message.memory_references.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs font-semibold uppercase text-[var(--text-muted)]">
+                          Used saved memory
+                        </p>
+                        {message.memory_references.map((memory) => (
+                          <details
+                            className="rounded-lg border border-[var(--accent-intelligence)]/60 p-3 text-sm"
+                            key={memory.id}
+                          >
+                            <summary className="cursor-pointer font-semibold">
+                              Remembered {memory.memory_type}
+                            </summary>
+                            <p className="mt-2 leading-6 text-[var(--text-secondary)]">
+                              {memory.content}
+                            </p>
+                            {memory.source_conversation_id ? (
+                              <a
+                                className="mt-2 inline-flex items-center gap-1 text-xs underline"
+                                href={`/conversations?conversation=${memory.source_conversation_id}`}
+                              >
+                                <ChevronRight aria-hidden="true" size={13} />
+                                {memory.source_conversation_title ?? "Source conversation"}
+                              </a>
+                            ) : null}
+                          </details>
+                        ))}
+                      </div>
+                    ) : null}
                   </article>
                 ))
               )}
             </div>
             <form
               action={formAction}
-              className="composer-surface sticky bottom-0 space-y-3 border-t border-[var(--border-subtle)] pt-3"
-              onSubmit={() => setSubmittedMessageCount(activeConversation.messages.length)}
+              className="composer-surface mt-auto shrink-0 space-y-3 border-t border-[var(--border-subtle)] pt-3"
+              onSubmit={(event) => {
+                if (submittingRef.current || pending || !question.trim()) {
+                  event.preventDefault();
+                  return;
+                }
+                submittingRef.current = true;
+                setSubmittedMessageCount(activeConversation.messages.length);
+              }}
             >
               <input name="conversation_id" type="hidden" value={activeConversation.id} />
               <fieldset className="rounded-lg border border-[var(--border-subtle)] p-3">
                 <legend className="px-1 text-sm font-semibold text-[var(--text-secondary)]">
-                  Document scope
+                  Optional document scope
                 </legend>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {readyDocuments.length === 0 ? (
-                    <p className="text-sm text-[var(--text-muted)]">No retrieval-ready PDFs.</p>
+                    <p className="text-sm text-[var(--text-muted)]">
+                      No retrieval-ready PDFs. Document selection is optional.
+                    </p>
                   ) : (
                     readyDocuments.map((document) => (
                       <label
@@ -364,7 +596,7 @@ export function ConversationWorkspace({
                 id="question"
                 name="question"
                 onChange={(event) => setQuestion(event.target.value)}
-                placeholder="Ask from your documents"
+                placeholder="Ask a general question, use ContextOS data, or ask from selected documents"
                 required
                 value={question}
               />
@@ -379,11 +611,11 @@ export function ConversationWorkspace({
                   role={state.status === "error" ? "alert" : "status"}
                 >
                   {state.message ||
-                    "Document excerpts may be sent to the configured AI provider."}
+                    helperText}
                 </p>
                 <button
                   className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-document)] px-4 text-sm font-semibold text-[#07111f] disabled:opacity-60"
-                  disabled={pending || readyDocuments.length === 0}
+                  disabled={pending || !question.trim()}
                 >
                   <Send aria-hidden="true" size={17} />
                   {pending ? "Sending" : state.status === "error" ? "Retry" : "Send"}
@@ -394,14 +626,122 @@ export function ConversationWorkspace({
         ) : (
           <div className="flex min-h-[30rem] items-center justify-center text-center">
             <div>
-              <h2 className="text-xl font-semibold">Start a grounded conversation</h2>
+              <h2 className="text-xl font-semibold">No conversations yet</h2>
               <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                Create a conversation to ask citation-backed questions across ready PDFs.
+                Start a conversation to chat generally, ask from selected documents, or use
+                authenticated ContextOS workspace data.
               </p>
             </div>
           </div>
         )}
       </section>
+      <aside className="hidden min-h-0 xl:block">
+        {latestAssistantMessage ? (
+          <div className="quiet-panel h-full overflow-y-auto rounded-lg p-4">
+            <h2 className="text-sm font-semibold text-[var(--text-secondary)]">
+              Context inspector
+            </h2>
+            <div className="mt-3">
+              <ContextInspector message={latestAssistantMessage} />
+            </div>
+          </div>
+        ) : null}
+      </aside>
+    </div>
+  );
+}
+
+function ContextInspector({ message }: { message: ConversationMessage }) {
+  if (message.source_mode === "contextos") {
+    return (
+      <div className="space-y-3 text-sm">
+        <p className="rounded-full border border-[var(--border-subtle)] px-2 py-1 font-semibold">
+          ContextOS data
+        </p>
+        <p className="text-[var(--text-secondary)]">
+          Authenticated workspace metadata was used.
+        </p>
+      </div>
+    );
+  }
+  if (message.source_mode === "memory_suggestion_created") {
+    return (
+      <div className="space-y-3 text-sm">
+        <p className="rounded-full border border-[var(--status-warning)] px-2 py-1 font-semibold">
+          Awaiting approval
+        </p>
+        <p className="text-[var(--text-secondary)]">
+          Memory suggestion created. Review it before it can influence answers.
+        </p>
+        <a className="inline-flex items-center gap-1 underline" href="/memories">
+          <ChevronRight aria-hidden="true" size={13} />
+          Review action
+        </a>
+      </div>
+    );
+  }
+  if (message.source_mode === "insufficient_evidence") {
+    return (
+      <div className="space-y-3 text-sm">
+        <p className="rounded-full border border-[var(--border-subtle)] px-2 py-1 font-semibold">
+          Not enough evidence
+        </p>
+        <p className="text-[var(--text-secondary)]">No reliable source found.</p>
+      </div>
+    );
+  }
+  if (message.source_mode === "general") {
+    return (
+      <div className="space-y-3 text-sm">
+        <p className="rounded-full border border-[var(--border-subtle)] px-2 py-1 font-semibold">
+          General answer
+        </p>
+        <p className="text-[var(--text-secondary)]">
+          No documents or saved memories were used.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4 text-sm">
+      {message.citations.length > 0 ? (
+        <section>
+          <h3 className="font-semibold">Documents</h3>
+          <p className="mt-1 text-[var(--text-secondary)]">
+            Citation count: {message.citations.length}
+          </p>
+          <div className="mt-2 space-y-2">
+            {message.citations.map((citation) => (
+              <div className="rounded-lg border border-[var(--border-subtle)] p-2" key={citation.citation_index}>
+                <p className="font-medium">{citation.document_name}</p>
+                <p className="text-[var(--text-muted)]">Page {citation.page_number}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {message.memory_references.length > 0 ? (
+        <section>
+          <h3 className="font-semibold">Used saved memory</h3>
+          <div className="mt-2 space-y-2">
+            {message.memory_references.map((memory) => (
+              <div className="rounded-lg border border-[var(--border-subtle)] p-2" key={memory.id}>
+                <p className="font-medium">{memory.memory_type}</p>
+                <p className="mt-1 text-[var(--text-secondary)]">{memory.content}</p>
+                {memory.source_conversation_id ? (
+                  <a
+                    className="mt-2 inline-flex items-center gap-1 text-xs underline"
+                    href={`/conversations?conversation=${memory.source_conversation_id}`}
+                  >
+                    <ChevronRight aria-hidden="true" size={13} />
+                    {memory.source_conversation_title ?? "Source conversation"}
+                  </a>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

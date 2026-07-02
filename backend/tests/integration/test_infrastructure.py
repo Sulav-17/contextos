@@ -8,13 +8,22 @@ from fastapi.testclient import TestClient
 from contextos.core.config import Settings
 from contextos.infrastructure.database import DatabaseResource
 from contextos.infrastructure.redis_client import RedisResource
+from tests.support import ensure_test_database, required_test_database_url
+
+
+@pytest.fixture(scope="module", autouse=True)
+def isolated_test_database() -> None:
+    ensure_test_database()
 
 
 def build_integration_settings() -> Settings:
-    database_url = os.environ.get("CONTEXTOS_DATABASE_URL")
+    database_url = required_test_database_url(
+        "CONTEXTOS_TEST_DATABASE_URL",
+        "CONTEXTOS_DATABASE_URL",
+    )
     redis_url = os.environ.get("CONTEXTOS_REDIS_URL")
-    if not database_url or not redis_url:
-        pytest.fail("Integration tests require CONTEXTOS_DATABASE_URL and CONTEXTOS_REDIS_URL.")
+    if not redis_url:
+        pytest.fail("Integration tests require CONTEXTOS_REDIS_URL.")
 
     return Settings(
         application_name="contextos-api",

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, Final, cast
@@ -21,19 +20,12 @@ from sqlalchemy.ext.asyncio import (
 from alembic import command
 from alembic.config import Config
 from contextos.infrastructure.tenant_context import set_tenant_context
+from tests.support import ensure_test_database, required_env, required_test_database_url
 
 USER_A: Final = UUID("10000000-0000-4000-8000-000000000001")
 USER_B: Final = UUID("10000000-0000-4000-8000-000000000002")
 RLS_TEST_USERS: Final = (USER_A, USER_B)
 RLS_TEST_EMAILS: Final = ("security-a@example.test", "security-b@example.test")
-
-
-def required_env(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        pytest.fail(f"{name} is required for PostgreSQL-backed RLS security tests.")
-    return value
-
 
 def database_username(database_url: str) -> str:
     parsed = urlparse(database_url)
@@ -45,21 +37,34 @@ def database_username(database_url: str) -> str:
 def build_alembic_config() -> Config:
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
-    config.set_main_option("sqlalchemy.url", required_env("CONTEXTOS_MIGRATION_DATABASE_URL"))
+    config.set_main_option(
+        "sqlalchemy.url",
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        ),
+    )
     return config
 
 
 @pytest.fixture(scope="session")
 def migrated_database() -> None:
-    required_env("CONTEXTOS_DATABASE_URL")
-    required_env("CONTEXTOS_MIGRATION_DATABASE_URL")
+    ensure_test_database()
+    required_test_database_url("CONTEXTOS_TEST_DATABASE_URL", "CONTEXTOS_DATABASE_URL")
+    required_test_database_url(
+        "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+        "CONTEXTOS_MIGRATION_DATABASE_URL",
+    )
     required_env("POSTGRES_APP_USER")
     command.upgrade(build_alembic_config(), "head")
 
 
 @pytest.fixture
 async def runtime_engine(migrated_database: None) -> AsyncGenerator[AsyncEngine]:
-    engine = create_async_engine(required_env("CONTEXTOS_DATABASE_URL"), pool_pre_ping=True)
+    engine = create_async_engine(
+        required_test_database_url("CONTEXTOS_TEST_DATABASE_URL", "CONTEXTOS_DATABASE_URL"),
+        pool_pre_ping=True,
+    )
     try:
         yield engine
     finally:
@@ -69,7 +74,10 @@ async def runtime_engine(migrated_database: None) -> AsyncGenerator[AsyncEngine]
 @pytest.fixture
 async def migration_engine(migrated_database: None) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(
-        required_env("CONTEXTOS_MIGRATION_DATABASE_URL"),
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        ),
         pool_pre_ping=True,
     )
     try:
@@ -299,12 +307,56 @@ async def test_missing_tenant_context_fails_closed(
 
 
 @pytest.mark.asyncio
+async def test_memory_rows_are_tenant_isolated_by_rls(
+    runtime_engine: AsyncEngine,
+    migration_engine: AsyncEngine,
+    seeded_tenants: tuple[UUID, UUID],
+) -> None:
+    user_a, user_b = seeded_tenants
+    async with migration_engine.begin() as connection:
+        await connection.execute(text("SELECT set_config('app.actor_role', 'admin', true)"))
+        await connection.execute(
+            text(
+                """
+                INSERT INTO memories (
+                  user_id, memory_type, content, status, source_kind, content_sha256
+                )
+                VALUES
+                  (:user_a, 'preference', 'tenant a memory', 'approved', 'manual', repeat('a', 64)),
+                  (:user_b, 'preference', 'tenant b memory', 'approved', 'manual', repeat('b', 64))
+                """
+            ),
+            {"user_a": str(user_a), "user_b": str(user_b)},
+        )
+
+    session = await tenant_session(runtime_engine, user_a)
+    try:
+        visible = (
+            await session.execute(text("SELECT content FROM memories ORDER BY content"))
+        ).scalars().all()
+        other_user = (
+            await session.execute(
+                text("SELECT content FROM memories WHERE user_id = :user_b"),
+                {"user_b": str(user_b)},
+            )
+        ).scalar_one_or_none()
+    finally:
+        await session.rollback()
+        await session.close()
+
+    assert visible == ["tenant a memory"]
+    assert other_user is None
+
+
+@pytest.mark.asyncio
 async def test_runtime_database_role_cannot_bypass_rls(
     runtime_engine: AsyncEngine,
     migration_engine: AsyncEngine,
     seeded_tenants: tuple[UUID, UUID],
 ) -> None:
-    runtime_role = database_username(required_env("CONTEXTOS_DATABASE_URL"))
+    runtime_role = database_username(
+        required_test_database_url("CONTEXTOS_TEST_DATABASE_URL", "CONTEXTOS_DATABASE_URL")
+    )
     async with migration_engine.connect() as connection:
         bypass_rls = (
             await connection.execute(
@@ -326,8 +378,15 @@ async def test_normal_application_sessions_use_runtime_role(
     runtime_engine: AsyncEngine,
     seeded_tenants: tuple[UUID, UUID],
 ) -> None:
-    runtime_role = database_username(required_env("CONTEXTOS_DATABASE_URL"))
-    migration_role = database_username(required_env("CONTEXTOS_MIGRATION_DATABASE_URL"))
+    runtime_role = database_username(
+        required_test_database_url("CONTEXTOS_TEST_DATABASE_URL", "CONTEXTOS_DATABASE_URL")
+    )
+    migration_role = database_username(
+        required_test_database_url(
+            "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+            "CONTEXTOS_MIGRATION_DATABASE_URL",
+        )
+    )
 
     async with runtime_engine.connect() as connection:
         current_user = (await connection.execute(text("SELECT current_user"))).scalar_one()

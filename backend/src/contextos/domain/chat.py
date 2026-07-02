@@ -16,10 +16,32 @@ from contextos.domain.ai import (
     build_chat_provider,
     build_embedding_provider,
 )
+from contextos.domain.memories import (
+    MemoryReference,
+    RetrievedMemory,
+    create_memory_suggestion_from_message,
+    is_memory_aware_question,
+    matches_explicit_memory_save_intent,
+    retrieve_memories,
+    retrieve_memories_for_question,
+)
+from contextos.domain.workspace_state import answer_workspace_state_question
 
 MessageRole = Literal["user", "assistant"]
 EvidenceStatus = Literal["grounded", "insufficient_evidence"]
+SourceMode = Literal[
+    "general",
+    "contextos",
+    "memory",
+    "documents",
+    "documents_and_memory",
+    "memory_suggestion_created",
+    "insufficient_evidence",
+]
 FALLBACK_ANSWER = "I could not find enough evidence in your documents to answer that."
+MEMORY_SUGGESTION_ANSWER = (
+    "Memory suggestion created. Awaiting approval before it can influence answers."
+)
 DEFAULT_CONVERSATION_TITLE = "New conversation"
 MAX_CONVERSATION_TITLE_LENGTH = 120
 AUTO_TITLE_LENGTH = 60
@@ -31,6 +53,7 @@ class ConversationCreateRequest(BaseModel):
         min_length=1,
         max_length=MAX_CONVERSATION_TITLE_LENGTH,
     )
+    document_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
 
 class ConversationUpdateRequest(BaseModel):
@@ -52,6 +75,7 @@ class ConversationSummary(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    archived_at: datetime | None = None
 
 
 class ConversationListResponse(BaseModel):
@@ -73,6 +97,8 @@ class MessageResponse(BaseModel):
     status: str
     created_at: datetime
     citations: list[CitationResponse] = Field(default_factory=list)
+    memory_references: list[MemoryReference] = Field(default_factory=list)
+    source_mode: SourceMode = "general"
 
 
 class ConversationDetailResponse(ConversationSummary):
@@ -89,6 +115,9 @@ class MessageCreateResponse(BaseModel):
     message: MessageResponse
     usage: UsageResponse
     evidence_status: EvidenceStatus
+    memory_used: bool = False
+    memory_references: list[MemoryReference] = Field(default_factory=list)
+    source_mode: SourceMode
 
 
 class UsageBucket(BaseModel):
@@ -133,14 +162,14 @@ def usage_periods(now: datetime | None = None) -> UsagePeriods:
 
 
 async def create_conversation(
-    session: AsyncSession, *, user_id: UUID, title: str
+    session: AsyncSession, *, user_id: UUID, title: str, document_ids: list[UUID] | None = None
 ) -> ConversationSummary:
     result = await session.execute(
         text(
             """
             INSERT INTO conversations (user_id, title)
             VALUES (:user_id, :title)
-            RETURNING id, title, created_at, updated_at
+            RETURNING id, title, created_at, updated_at, archived_at
             """
         ),
         {
@@ -148,7 +177,18 @@ async def create_conversation(
             "title": normalize_conversation_title(title) or DEFAULT_CONVERSATION_TITLE,
         },
     )
-    return ConversationSummary.model_validate(dict(result.mappings().one()))
+    conversation = ConversationSummary.model_validate(dict(result.mappings().one()))
+    selected_document_ids = await _validate_document_filter(
+        session, user_id=user_id, document_ids=document_ids or []
+    )
+    if selected_document_ids:
+        await _replace_conversation_document_scope(
+            session,
+            user_id=user_id,
+            conversation_id=conversation.id,
+            document_ids=selected_document_ids,
+        )
+    return conversation
 
 
 async def update_conversation_title(
@@ -160,7 +200,7 @@ async def update_conversation_title(
             UPDATE conversations
             SET title = :title, updated_at = :now
             WHERE id = :conversation_id AND user_id = :user_id AND deleted_at IS NULL
-            RETURNING id, title, created_at, updated_at
+            RETURNING id, title, created_at, updated_at, archived_at
             """
         ),
         {
@@ -174,17 +214,24 @@ async def update_conversation_title(
     return ConversationSummary.model_validate(dict(row)) if row is not None else None
 
 
-async def list_conversations(session: AsyncSession, user_id: UUID) -> ConversationListResponse:
+async def list_conversations(
+    session: AsyncSession, user_id: UUID, *, archived: bool = False
+) -> ConversationListResponse:
     result = await session.execute(
         text(
             """
-            SELECT id, title, created_at, updated_at
+            SELECT id, title, created_at, updated_at, archived_at
             FROM conversations
-            WHERE user_id = :user_id AND deleted_at IS NULL
+            WHERE user_id = :user_id
+              AND deleted_at IS NULL
+              AND (
+                (:archived = false AND archived_at IS NULL)
+                OR (:archived = true AND archived_at IS NOT NULL)
+              )
             ORDER BY updated_at DESC, id DESC
             """
         ),
-        {"user_id": str(user_id)},
+        {"user_id": str(user_id), "archived": archived},
     )
     return ConversationListResponse(
         conversations=[ConversationSummary.model_validate(dict(row)) for row in result.mappings()]
@@ -213,11 +260,20 @@ async def get_conversation_detail(
     )
     messages = [MessageResponse.model_validate(dict(row)) for row in result.mappings()]
     citations = await _citations_for_messages(session, user_id=user_id, messages=messages)
+    memory_references = await _memory_references_for_messages(
+        session, user_id=user_id, messages=messages
+    )
     return ConversationDetailResponse(
         **summary.model_dump(),
         selected_document_ids=selected_document_ids,
         messages=[
-            message.model_copy(update={"citations": citations.get(message.id, [])})
+            _message_with_metadata(
+                message,
+                update={
+                    "citations": citations.get(message.id, []),
+                    "memory_references": memory_references.get(message.id, []),
+                },
+            )
             for message in messages
         ],
     )
@@ -241,6 +297,50 @@ async def delete_conversation(
         },
     )
     return cast(CursorResult[object], result).rowcount == 1
+
+
+async def archive_conversation(
+    session: AsyncSession, *, user_id: UUID, conversation_id: UUID
+) -> ConversationSummary | None:
+    result = await session.execute(
+        text(
+            """
+            UPDATE conversations
+            SET archived_at = :now, updated_at = :now
+            WHERE id = :conversation_id AND user_id = :user_id AND deleted_at IS NULL
+            RETURNING id, title, created_at, updated_at, archived_at
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "now": datetime.now(UTC),
+        },
+    )
+    row = result.mappings().one_or_none()
+    return ConversationSummary.model_validate(dict(row)) if row is not None else None
+
+
+async def unarchive_conversation(
+    session: AsyncSession, *, user_id: UUID, conversation_id: UUID
+) -> ConversationSummary | None:
+    result = await session.execute(
+        text(
+            """
+            UPDATE conversations
+            SET archived_at = NULL, updated_at = :now
+            WHERE id = :conversation_id AND user_id = :user_id AND deleted_at IS NULL
+            RETURNING id, title, created_at, updated_at, archived_at
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "now": datetime.now(UTC),
+        },
+    )
+    row = result.mappings().one_or_none()
+    return ConversationSummary.model_validate(dict(row)) if row is not None else None
 
 
 async def usage_status(
@@ -267,35 +367,15 @@ async def submit_question(
     )
     if conversation is None:
         return None
-    selected_document_ids = await _validate_document_filter(
-        session, user_id=user_id, document_ids=request.document_ids
-    )
-    await _replace_conversation_document_scope(
+    question = request.question.strip()
+    workspace_state_answer = await answer_workspace_state_question(
         session,
         user_id=user_id,
-        conversation_id=conversation_id,
-        document_ids=selected_document_ids,
+        question=question,
+        settings=settings,
     )
-    question = request.question.strip()
-    if selected_document_ids and is_broad_summary_question(question):
-        chunks = await retrieve_selected_document_summary_chunks(
-            session,
-            user_id=user_id,
-            settings=settings,
-            document_ids=selected_document_ids,
-        )
-    else:
-        embedding_provider = build_embedding_provider(settings)
-        query_embedding = (await embedding_provider.embed([question]))[0]
-        chunks = await retrieve_chunks(
-            session,
-            user_id=user_id,
-            query_embedding=query_embedding,
-            settings=settings,
-            document_ids=selected_document_ids,
-        )
-    if not chunks:
-        usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
+    if workspace_state_answer is not None:
+        answer, usage = workspace_state_answer
         await _insert_successful_user_message(
             session,
             user_id=user_id,
@@ -308,33 +388,271 @@ async def submit_question(
             user_id=user_id,
             conversation_id=conversation_id,
             role="assistant",
-            content=FALLBACK_ANSWER,
+            content=answer,
             status="completed",
+        )
+        await _touch_conversation(session, user_id=user_id, conversation_id=conversation_id)
+        return MessageCreateResponse(
+            message=MessageResponse(
+                id=assistant_id,
+                role="assistant",
+                content=answer,
+                status="completed",
+                created_at=datetime.now(UTC),
+                citations=[],
+                memory_references=[],
+                source_mode="contextos",
+            ),
+            usage=usage,
+            evidence_status="grounded",
+            memory_used=False,
+            memory_references=[],
+            source_mode="contextos",
+        )
+    selected_document_ids = await _validate_document_filter(
+        session, user_id=user_id, document_ids=request.document_ids
+    )
+    await _replace_conversation_document_scope(
+        session,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        document_ids=selected_document_ids,
+    )
+    embedding_provider = build_embedding_provider(settings)
+    query_embedding = (await embedding_provider.embed([question]))[0]
+    explicit_memory_save = matches_explicit_memory_save_intent(question)
+    memory_question = is_memory_aware_question(question)
+    accepted_user_message_id: UUID | None = None
+    memories = await retrieve_memories(
+        session, user_id=user_id, query_embedding=query_embedding, settings=settings
+    )
+    if explicit_memory_save:
+        accepted_user_message_id = await _insert_successful_user_message(
+            session,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            conversation_title=conversation.title,
+            question=question,
+        )
+        suggestion = await create_memory_suggestion_from_message(
+            session,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            message_id=accepted_user_message_id,
+            content=question,
+        )
+        await _touch_conversation(session, user_id=user_id, conversation_id=conversation_id)
+        if suggestion is not None:
+            usage = await usage_status(session, user_id=user_id, settings=settings)
+            assistant_id = await _insert_message(
+                session,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=MEMORY_SUGGESTION_ANSWER,
+                status="completed",
+            )
+            return MessageCreateResponse(
+                message=MessageResponse(
+                    id=assistant_id,
+                    role="assistant",
+                    content=MEMORY_SUGGESTION_ANSWER,
+                    status="completed",
+                    created_at=datetime.now(UTC),
+                    citations=[],
+                    memory_references=[],
+                    source_mode="memory_suggestion_created",
+                ),
+                usage=usage,
+                evidence_status="insufficient_evidence",
+                memory_used=False,
+                memory_references=[],
+                source_mode="memory_suggestion_created",
+            )
+    if memory_question:
+        memory_context = await retrieve_memories_for_question(
+            session,
+            user_id=user_id,
+            question=question,
+            query_embedding=query_embedding,
+            settings=settings,
+        )
+        if memory_context:
+            await _insert_successful_user_message(
+                session,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                conversation_title=conversation.title,
+                question=question,
+            )
+            answer = _render_memory_answer(memory_context[0])
+            usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
+            assistant_id = await _insert_message(
+                session,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=answer,
+                status="completed",
+            )
+            memory_references = await _insert_memory_references(
+                session, user_id=user_id, message_id=assistant_id, memories=memory_context
+            )
+            await _touch_conversation(session, user_id=user_id, conversation_id=conversation_id)
+            return MessageCreateResponse(
+                message=MessageResponse(
+                    id=assistant_id,
+                    role="assistant",
+                    content=answer,
+                    status="completed",
+                    created_at=datetime.now(UTC),
+                    citations=[],
+                    memory_references=memory_references,
+                    source_mode="memory",
+                ),
+                usage=usage,
+                evidence_status="insufficient_evidence",
+                memory_used=True,
+                memory_references=memory_references,
+                source_mode="memory",
+            )
+    if not selected_document_ids:
+        chunks: list[RetrievedChunk] = []
+    elif is_broad_summary_question(question):
+        chunks = await retrieve_selected_document_summary_chunks(
+            session,
+            user_id=user_id,
+            settings=settings,
+            document_ids=selected_document_ids,
+        )
+    else:
+        chunks = await retrieve_chunks(
+            session,
+            user_id=user_id,
+            query_embedding=query_embedding,
+            settings=settings,
+            document_ids=selected_document_ids,
+        )
+    if not chunks:
+        if accepted_user_message_id is None:
+            accepted_user_message_id = await _insert_successful_user_message(
+                session,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                conversation_title=conversation.title,
+                question=question,
+            )
+        if selected_document_ids:
+            usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
+            assistant_id = await _insert_message(
+                session,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=FALLBACK_ANSWER,
+                status="completed",
+            )
+            return MessageCreateResponse(
+                message=MessageResponse(
+                    id=assistant_id,
+                    role="assistant",
+                    content=FALLBACK_ANSWER,
+                    status="completed",
+                    created_at=datetime.now(UTC),
+                    citations=[],
+                    source_mode="insufficient_evidence",
+                ),
+                usage=usage,
+                evidence_status="insufficient_evidence",
+                source_mode="insufficient_evidence",
+            )
+        if memories and not memory_question:
+            chat_provider = build_chat_provider(settings)
+            chat_result = await chat_provider.generate(
+                _build_chat_request(question, [], settings, memories=memories)
+            )
+            answer = chat_result.content.strip() or FALLBACK_ANSWER
+            usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
+            assistant_id = await _insert_message(
+                session,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=answer,
+                status="completed",
+                provider=chat_result.provider,
+                model=chat_result.model,
+            )
+            memory_references = await _insert_memory_references(
+                session, user_id=user_id, message_id=assistant_id, memories=memories
+            )
+            return MessageCreateResponse(
+                message=MessageResponse(
+                    id=assistant_id,
+                    role="assistant",
+                    content=answer,
+                    status="completed",
+                    created_at=datetime.now(UTC),
+                    citations=[],
+                    memory_references=memory_references,
+                    source_mode="memory",
+                ),
+                usage=usage,
+                evidence_status="insufficient_evidence",
+                memory_used=True,
+                memory_references=memory_references,
+                source_mode="memory",
+            )
+        chat_provider = build_chat_provider(settings)
+        chat_result = await chat_provider.generate(_build_general_chat_request(question))
+        answer = chat_result.content.strip() or FALLBACK_ANSWER
+        usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
+        assistant_id = await _insert_message(
+            session,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            role="assistant",
+            content=answer,
+            status="completed",
+            provider=chat_result.provider,
+            model=chat_result.model,
         )
         return MessageCreateResponse(
             message=MessageResponse(
                 id=assistant_id,
                 role="assistant",
-                content=FALLBACK_ANSWER,
+                content=answer,
                 status="completed",
                 created_at=datetime.now(UTC),
                 citations=[],
+                source_mode="general",
             ),
             usage=usage,
-            evidence_status="insufficient_evidence",
+            evidence_status="grounded",
+            source_mode="general",
         )
     chat_provider = build_chat_provider(settings)
-    chat_result = await chat_provider.generate(_build_chat_request(question, chunks, settings))
+    chat_result = await chat_provider.generate(
+        _build_chat_request(question, chunks, settings, memories=memories)
+    )
     answer = chat_result.content.strip() or FALLBACK_ANSWER
     if answer == FALLBACK_ANSWER:
         chunks = []
     usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
-    await _insert_successful_user_message(
+    if accepted_user_message_id is None:
+        accepted_user_message_id = await _insert_successful_user_message(
+            session,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            conversation_title=conversation.title,
+            question=question,
+        )
+    await create_memory_suggestion_from_message(
         session,
         user_id=user_id,
         conversation_id=conversation_id,
-        conversation_title=conversation.title,
-        question=question,
+        message_id=accepted_user_message_id,
+        content=question,
     )
     assistant_id = await _insert_message(
         session,
@@ -352,20 +670,11 @@ async def submit_question(
         message_id=assistant_id,
         chunks=chunks,
     )
-    await session.execute(
-        text(
-            """
-            UPDATE conversations
-            SET updated_at = :now
-            WHERE id = :conversation_id AND user_id = :user_id
-            """
-        ),
-        {
-            "conversation_id": str(conversation_id),
-            "user_id": str(user_id),
-            "now": datetime.now(UTC),
-        },
+    memory_references = await _insert_memory_references(
+        session, user_id=user_id, message_id=assistant_id, memories=memories
     )
+    source_mode = _source_mode(citations=citations, memory_references=memory_references)
+    await _touch_conversation(session, user_id=user_id, conversation_id=conversation_id)
     return MessageCreateResponse(
         message=MessageResponse(
             id=assistant_id,
@@ -374,9 +683,14 @@ async def submit_question(
             status="completed",
             created_at=datetime.now(UTC),
             citations=citations,
+            memory_references=memory_references,
+            source_mode=source_mode,
         ),
         usage=usage,
         evidence_status="grounded" if citations else "insufficient_evidence",
+        memory_used=bool(memory_references),
+        memory_references=memory_references,
+        source_mode=source_mode,
     )
 
 
@@ -574,27 +888,102 @@ async def retrieve_selected_document_summary_chunks(
 
 
 def _build_chat_request(
-    question: str, chunks: list[RetrievedChunk], settings: Settings
+    question: str,
+    chunks: list[RetrievedChunk],
+    settings: Settings,
+    *,
+    memories: list[RetrievedMemory],
 ) -> ChatRequest:
-    context_parts: list[str] = []
+    document_parts: list[str] = []
     remaining = settings.retrieval_max_context_characters
     for index, chunk in enumerate(chunks, start=1):
         excerpt = chunk.content[: min(len(chunk.content), remaining)]
         if not excerpt:
             break
-        context_parts.append(
+        document_parts.append(
             f"[{index}] {chunk.document_name}, page {chunk.page_number}: {excerpt}"
         )
         remaining -= len(excerpt)
-    context_text = "\n\n".join(context_parts)
+    memory_parts = [
+        f"(memory {index}) {memory.memory_type}: {memory.content}"
+        for index, memory in enumerate(memories, start=1)
+    ]
+    context_text = "\n\n".join(document_parts)
+    memory_text = "\n".join(memory_parts)
     return ChatRequest(
         system_prompt=(
-            "Answer only from the supplied ContextOS document context. "
-            "If the context is insufficient, say exactly that there is not enough evidence. "
-            "Do not invent document titles, page numbers, or unsupported facts."
+            "Answer from the supplied ContextOS document context first. "
+            "Document evidence takes priority over saved memory. "
+            "Document claims must use document citations supplied by the application. "
+            "Saved memory is user-controlled remembered information, not document evidence. "
+            "Label memory-derived claims as remembered information. "
+            "If neither documents nor memory answer the question, say exactly that there is not "
+            "enough evidence. Do not invent document titles, page numbers, memories, or citations."
         ),
-        user_prompt=f"Context:\n{context_text}\n\nQuestion: {question}",
+        user_prompt=(
+            f"Document context:\n{context_text}\n\n"
+            f"Approved saved memory:\n{memory_text}\n\n"
+            f"Question: {question}"
+        ),
     )
+
+
+def _build_general_chat_request(question: str) -> ChatRequest:
+    return ChatRequest(
+        system_prompt=(
+            "Answer the user's general question plainly. Do not claim to use ContextOS documents "
+            "or saved memory. Do not invent citations or private context."
+        ),
+        user_prompt=f"General question:\n{question}",
+    )
+
+
+def _source_mode(
+    *, citations: list[CitationResponse], memory_references: list[MemoryReference]
+) -> SourceMode:
+    if citations and memory_references:
+        return "documents_and_memory"
+    if not citations and not memory_references:
+        return "general"
+    if citations:
+        return "documents"
+    if memory_references:
+        return "memory"
+    return "general"
+
+
+def _message_source_mode(message: MessageResponse) -> SourceMode:
+    if message.content == MEMORY_SUGGESTION_ANSWER:
+        return "memory_suggestion_created"
+    if message.content == FALLBACK_ANSWER:
+        return "insufficient_evidence"
+    if message.source_mode == "contextos":
+        return "contextos"
+    return _source_mode(
+        citations=message.citations,
+        memory_references=message.memory_references,
+    )
+
+
+def _render_memory_answer(memory: RetrievedMemory) -> str:
+    content = memory.content.strip()
+    lowered = content.casefold()
+    if lowered.startswith("my "):
+        return "Your " + content[3:]
+    if lowered.startswith("i "):
+        return "You " + content[2:]
+    if lowered.startswith("we "):
+        return "You " + content[3:]
+    return f"Remembered information: {content}"
+
+
+def _message_with_metadata(
+    message: MessageResponse,
+    *,
+    update: dict[str, list[CitationResponse] | list[MemoryReference]],
+) -> MessageResponse:
+    enriched = message.model_copy(update=update)
+    return enriched.model_copy(update={"source_mode": _message_source_mode(enriched)})
 
 
 async def _get_conversation(
@@ -603,7 +992,7 @@ async def _get_conversation(
     result = await session.execute(
         text(
             """
-            SELECT id, title, created_at, updated_at
+            SELECT id, title, created_at, updated_at, archived_at
             FROM conversations
             WHERE id = :conversation_id AND user_id = :user_id AND deleted_at IS NULL
             """
@@ -641,6 +1030,42 @@ async def _citations_for_messages(
         message_id = row["message_id"]
         grouped.setdefault(message_id, []).append(
             CitationResponse.model_validate(
+                {key: value for key, value in dict(row).items() if key != "message_id"}
+            )
+        )
+    return grouped
+
+
+async def _memory_references_for_messages(
+    session: AsyncSession, *, user_id: UUID, messages: list[MessageResponse]
+) -> dict[UUID, list[MemoryReference]]:
+    if not messages:
+        return {}
+    result = await session.execute(
+        text(
+            """
+            SELECT mmr.message_id,
+                   mmr.memory_id AS id,
+                   mmr.memory_type,
+                   mmr.content,
+                   mmr.source_conversation_id,
+                   c.title AS source_conversation_title
+            FROM message_memory_references mmr
+            LEFT JOIN conversations c
+              ON c.id = mmr.source_conversation_id
+             AND c.user_id = mmr.user_id
+             AND c.deleted_at IS NULL
+            WHERE mmr.user_id = :user_id AND mmr.message_id = ANY(:message_ids)
+            ORDER BY mmr.message_id, mmr.reference_index
+            """
+        ),
+        {"user_id": str(user_id), "message_ids": [str(message.id) for message in messages]},
+    )
+    grouped: dict[UUID, list[MemoryReference]] = {}
+    for row in result.mappings():
+        message_id = row["message_id"]
+        grouped.setdefault(message_id, []).append(
+            MemoryReference.model_validate(
                 {key: value for key, value in dict(row).items() if key != "message_id"}
             )
         )
@@ -726,6 +1151,72 @@ async def _insert_citations(
             },
         )
     return citations
+
+
+async def _insert_memory_references(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    message_id: UUID,
+    memories: list[RetrievedMemory],
+) -> list[MemoryReference]:
+    references: list[MemoryReference] = []
+    for memory in memories:
+        reference = MemoryReference(
+            id=memory.id,
+            memory_type=memory.memory_type,
+            content=memory.content,
+            source_conversation_id=memory.source_conversation_id,
+            source_conversation_title=memory.source_conversation_title,
+        )
+        references.append(reference)
+        await session.execute(
+            text(
+                """
+                INSERT INTO message_memory_references (
+                  message_id, memory_id, user_id, memory_type, content,
+                  source_conversation_id, reference_index
+                )
+                VALUES (
+                  :message_id, :memory_id, :user_id, :memory_type, :content,
+                  :source_conversation_id, :reference_index
+                )
+                """
+            ),
+            {
+                "message_id": str(message_id),
+                "memory_id": str(reference.id),
+                "user_id": str(user_id),
+                "memory_type": reference.memory_type,
+                "content": reference.content,
+                "source_conversation_id": (
+                    str(reference.source_conversation_id)
+                    if reference.source_conversation_id
+                    else None
+                ),
+                "reference_index": len(references),
+            },
+        )
+    return references
+
+
+async def _touch_conversation(
+    session: AsyncSession, *, user_id: UUID, conversation_id: UUID
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE conversations
+            SET updated_at = :now
+            WHERE id = :conversation_id AND user_id = :user_id
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "now": datetime.now(UTC),
+        },
+    )
 
 
 async def _validate_document_filter(

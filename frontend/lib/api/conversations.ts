@@ -12,12 +12,22 @@ import type {
 export function createConversation(title = "New conversation"): Promise<ConversationSummary> {
   return apiFetch<ConversationSummary>("/api/v1/conversations", {
     method: "POST",
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, document_ids: [] }),
   });
 }
 
-export function getConversations(): Promise<ConversationList> {
-  return apiFetch<ConversationList>("/api/v1/conversations");
+export function createScopedConversation(
+  documentIds: string[],
+  title = "New conversation",
+): Promise<ConversationSummary> {
+  return apiFetch<ConversationSummary>("/api/v1/conversations", {
+    method: "POST",
+    body: JSON.stringify({ title, document_ids: documentIds }),
+  });
+}
+
+export function getConversations(archived = false): Promise<ConversationList> {
+  return apiFetch<ConversationList>(`/api/v1/conversations?archived=${archived}`);
 }
 
 export function getConversation(conversationId: string): Promise<ConversationDetail> {
@@ -48,6 +58,18 @@ export function updateConversationTitle(
 export function deleteConversation(conversationId: string): Promise<void> {
   return apiFetch<void>(`/api/v1/conversations/${conversationId}`, {
     method: "DELETE",
+  });
+}
+
+export function archiveConversation(conversationId: string): Promise<ConversationSummary> {
+  return apiFetch<ConversationSummary>(`/api/v1/conversations/${conversationId}/archive`, {
+    method: "POST",
+  });
+}
+
+export function unarchiveConversation(conversationId: string): Promise<ConversationSummary> {
+  return apiFetch<ConversationSummary>(`/api/v1/conversations/${conversationId}/unarchive`, {
+    method: "POST",
   });
 }
 

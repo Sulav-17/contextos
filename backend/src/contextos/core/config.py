@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=5, gt=0, le=20)
     retrieval_similarity_threshold: float = Field(default=0.72, ge=0, le=1)
     retrieval_max_context_characters: int = Field(default=9000, gt=1000, le=30000)
+    memory_retrieval_top_k: int = Field(default=4, gt=0, le=10)
+    memory_retrieval_similarity_threshold: float = Field(default=0.72, ge=0, le=1)
+    memory_retrieval_max_context_characters: int = Field(default=1800, gt=200, le=6000)
     ai_daily_message_limit: int = Field(default=20, gt=0, le=10000)
     ai_monthly_message_limit: int = Field(default=200, gt=0, le=100000)
 

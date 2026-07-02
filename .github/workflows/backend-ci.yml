@@ -31,13 +31,13 @@ jobs:
       postgres:
         image: pgvector/pgvector:0.8.3-pg17-trixie
         env:
-          POSTGRES_DB: contextos_ci
-          POSTGRES_USER: contextos
-          POSTGRES_PASSWORD: contextos-ci-password
+          POSTGRES_DB: contextos_test
+          POSTGRES_USER: contextos_migration
+          POSTGRES_PASSWORD: contextos-ci-migration-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U contextos -d contextos_ci"
+          --health-cmd "pg_isready -U contextos_migration -d contextos_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
@@ -58,11 +58,15 @@ jobs:
       CONTEXTOS_LOG_LEVEL: INFO
       CONTEXTOS_LOG_FORMAT: json
       CONTEXTOS_READINESS_TIMEOUT_SECONDS: 3
-      CONTEXTOS_DATABASE_URL: postgresql+asyncpg://contextos:contextos-ci-password@127.0.0.1:5432/contextos_ci
+      CONTEXTOS_DATABASE_URL: postgresql+asyncpg://contextos_app:contextos-ci-runtime-password@127.0.0.1:5432/contextos_test
+      CONTEXTOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://contextos_migration:contextos-ci-migration-password@127.0.0.1:5432/contextos_test
+      CONTEXTOS_TEST_DATABASE_URL: postgresql+asyncpg://contextos_app:contextos-ci-runtime-password@127.0.0.1:5432/contextos_test
+      CONTEXTOS_TEST_MIGRATION_DATABASE_URL: postgresql+asyncpg://contextos_migration:contextos-ci-migration-password@127.0.0.1:5432/contextos_test
       CONTEXTOS_REDIS_URL: redis://127.0.0.1:6379/0
-      POSTGRES_DB: contextos_ci
-      POSTGRES_USER: contextos
-      POSTGRES_PASSWORD: contextos-ci-password
+      POSTGRES_DB: contextos_test
+      POSTGRES_USER: contextos_migration
+      POSTGRES_PASSWORD: contextos-ci-migration-password
+      POSTGRES_APP_USER: contextos_app
 
     defaults:
       run:
@@ -83,6 +87,9 @@ jobs:
 
       - name: Sync dependencies
         run: uv sync --locked --all-groups
+
+      - name: Bootstrap isolated test database
+        run: uv run python -m tests.bootstrap_test_database
 
       - name: Run Alembic migrations
         run: uv run alembic upgrade head

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
 import pytest
@@ -10,12 +9,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import command
 from alembic.config import Config
+from tests.support import ensure_test_database, required_test_database_url
 
 
 def build_alembic_config() -> Config:
-    database_url = os.environ.get("CONTEXTOS_DATABASE_URL")
-    if not database_url:
-        pytest.fail("Migration tests require CONTEXTOS_DATABASE_URL.")
+    ensure_test_database()
+    database_url = required_test_database_url(
+        "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+        "CONTEXTOS_MIGRATION_DATABASE_URL",
+    )
 
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
@@ -37,9 +39,11 @@ async def vector_extension_exists(database_url: str) -> bool:
 
 @pytest.mark.integration
 def test_migration_upgrade_downgrade_cycle() -> None:
-    database_url = os.environ.get("CONTEXTOS_DATABASE_URL")
-    if not database_url:
-        pytest.fail("Migration tests require CONTEXTOS_DATABASE_URL.")
+    ensure_test_database()
+    database_url = required_test_database_url(
+        "CONTEXTOS_TEST_MIGRATION_DATABASE_URL",
+        "CONTEXTOS_MIGRATION_DATABASE_URL",
+    )
 
     config = build_alembic_config()
 

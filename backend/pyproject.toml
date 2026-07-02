@@ -39,6 +39,7 @@ packages = ["src/contextos"]
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
 asyncio_mode = "auto"
+cache_dir = "tmp/pytest-cache"
 markers = [
   "integration: tests that require live PostgreSQL and Redis services",
 ]

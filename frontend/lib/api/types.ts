@@ -73,6 +73,7 @@ export type ConversationSummary = {
   title: string;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
 };
 
 export type Citation = {
@@ -90,6 +91,8 @@ export type ConversationMessage = {
   status: string;
   created_at: string;
   citations: Citation[];
+  memory_references: MemoryReference[];
+  source_mode: SourceMode;
 };
 
 export type ConversationList = {
@@ -105,4 +108,95 @@ export type MessageCreateResponse = {
   message: ConversationMessage;
   usage: UsageStatus;
   evidence_status: "grounded" | "insufficient_evidence";
+  memory_used: boolean;
+  memory_references: MemoryReference[];
+  source_mode: SourceMode;
+};
+
+export type SourceMode =
+  | "general"
+  | "contextos"
+  | "memory"
+  | "documents"
+  | "documents_and_memory"
+  | "memory_suggestion_created"
+  | "insufficient_evidence";
+
+export type MemoryType =
+  | "identity"
+  | "background"
+  | "goal"
+  | "preference"
+  | "project"
+  | "decision"
+  | "constraint"
+  | "other";
+
+export type MemoryStatus = "suggested" | "approved" | "disabled" | "rejected";
+
+export type Memory = {
+  id: string;
+  memory_type: MemoryType;
+  content: string;
+  status: MemoryStatus;
+  source_kind: "manual" | "conversation";
+  source_conversation_id: string | null;
+  source_conversation_title: string | null;
+  source_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+  disabled_at: string | null;
+};
+
+export type MemoryList = {
+  memories: Memory[];
+};
+
+export type MemoryReference = {
+  id: string;
+  memory_type: MemoryType;
+  content: string;
+  source_conversation_id: string | null;
+  source_conversation_title: string | null;
+};
+
+export type DashboardCounts = {
+  active_documents: number;
+  active_conversations: number;
+  approved_memories: number;
+  pending_suggestions: number;
+};
+
+export type DashboardConversation = {
+  id: string;
+  title: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type DashboardDocument = {
+  id: string;
+  original_filename: string;
+  status: DocumentStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DashboardMemory = {
+  id: string;
+  memory_type: MemoryType;
+  content: string;
+  status: MemoryStatus;
+  source_conversation_id: string | null;
+  source_conversation_title: string | null;
+  updated_at: string;
+};
+
+export type DashboardData = {
+  counts: DashboardCounts;
+  usage: UsageStatus;
+  recent_conversations: DashboardConversation[];
+  recent_documents: DashboardDocument[];
+  recent_memories: DashboardMemory[];
+  pending_suggestions: DashboardMemory[];
 };

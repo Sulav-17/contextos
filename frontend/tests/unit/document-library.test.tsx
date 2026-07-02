@@ -13,6 +13,9 @@ vi.mock("@/features/documents/actions", () => ({
   retryDocumentAction: vi.fn(),
   uploadDocumentAction: vi.fn(),
 }));
+vi.mock("@/features/conversations/actions", () => ({
+  createScopedConversationAction: vi.fn(),
+}));
 
 function document(overrides: Partial<DocumentMetadata> = {}): DocumentMetadata {
   return {
@@ -63,6 +66,13 @@ describe("DocumentLibrary", () => {
     );
     expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /delete/i })).toBeInTheDocument();
+  });
+
+  it("renders ask-about-document workflow for ready documents", () => {
+    render(<DocumentLibrary documents={[document()]} maxDocuments={10} maxSizeMb={10} />);
+
+    expect(screen.getByRole("button", { name: /ask about this document/i })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).toBeInTheDocument();
   });
 
   it("does not render client-visible owner identifiers", () => {

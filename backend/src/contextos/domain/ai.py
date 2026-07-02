@@ -63,12 +63,29 @@ class FakeChatProvider:
         self.model = model
 
     async def generate(self, request: ChatRequest) -> ChatResult:
-        context_marker = "Context:\n"
+        if request.user_prompt.startswith("General question:\n"):
+            question = request.user_prompt.split("General question:\n", 1)[-1].strip()
+            answer = f"General answer: {question[:240]}"
+            return ChatResult(content=answer, provider=self.provider, model=self.model)
+        context_marker = "Document context:\n"
+        memory_marker = "\n\nApproved saved memory:\n"
         question_marker = "\n\nQuestion:"
-        context = request.user_prompt.split(context_marker, 1)[-1].split(question_marker, 1)[0]
+        if context_marker in request.user_prompt:
+            context = (
+                request.user_prompt.split(context_marker, 1)[-1].split(memory_marker, 1)[0]
+            )
+            memory = (
+                request.user_prompt.split(memory_marker, 1)[-1].split(question_marker, 1)[0]
+            )
+        else:
+            context = request.user_prompt.split("Context:\n", 1)[-1].split(question_marker, 1)[0]
+            memory = ""
         first_line = next((line for line in context.splitlines() if line.strip()), "")
+        first_memory = next((line for line in memory.splitlines() if line.strip()), "")
         answer = (
             "I could not find enough evidence in your documents to answer that."
+            if not first_line and not first_memory
+            else f"Remembered information: {first_memory[:240]}"
             if not first_line
             else f"Based on your documents, {first_line[:240]}"
         )

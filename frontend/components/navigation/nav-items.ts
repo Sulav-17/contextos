@@ -19,7 +19,7 @@ export type NavItem = {
 export const primaryNavItems: NavItem[] = [
   { href: "/home", label: "Home", icon: Home },
   { href: "/conversations", label: "Conversations", icon: MessagesSquare },
-  { href: "/libraries", label: "Libraries", icon: BookOpen },
+  { href: "/libraries", label: "Documents", icon: BookOpen },
   { href: "/memories", label: "Memories", icon: Brain },
 ] as const;
 

@@ -1,17 +1,16 @@
 import { HomeWorkspace } from "@/features/home/home-workspace";
-import { getConversations, getUsage } from "@/lib/api/conversations";
+import { getDashboard } from "@/lib/api/dashboard";
 import { getDocuments } from "@/lib/api/documents";
 import { getMe, getPreferences } from "@/lib/api/me";
 
 export const metadata = { title: "Home" };
 
 export default async function HomePage() {
-  const [user, preferences, conversationList, documentList, usage] = await Promise.all([
+  const [user, preferences, dashboard, documentList] = await Promise.all([
     getMe(),
     getPreferences(),
-    getConversations(),
+    getDashboard(),
     getDocuments(),
-    getUsage(),
   ]);
   const greeting =
     preferences.greeting_mode === "full"
@@ -22,10 +21,9 @@ export default async function HomePage() {
 
   return (
     <HomeWorkspace
-      conversations={conversationList.conversations}
+      dashboard={dashboard}
       documents={documentList.documents}
       greeting={greeting}
-      usage={usage}
     />
   );
 }
