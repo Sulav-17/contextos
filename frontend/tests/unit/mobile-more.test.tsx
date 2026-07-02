@@ -30,8 +30,9 @@ describe("MobileMore", () => {
       "z-50",
     );
     expect(screen.getByTestId("mobile-more-overlay")).toHaveClass("z-40");
-    expect(screen.getByRole("link", { name: "Projects" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Uploads" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Projects" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Uploads" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Theme controls")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /install app/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /log out/i })).toBeInTheDocument();

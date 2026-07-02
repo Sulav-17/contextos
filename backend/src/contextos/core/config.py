@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AppEnvironment = Literal["local", "test", "staging", "production"]
 LogFormat = Literal["json", "console"]
+DocumentStorageBackend = Literal["local", "supabase"]
 
 ROOT_ENV_FILE = Path(__file__).resolve().parents[4] / ".env"
 BACKEND_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
@@ -43,7 +44,10 @@ class Settings(BaseSettings):
     supabase_secret_key: SecretStr | None = Field(default=None, repr=False)
     frontend_url: str = "http://localhost:3000"
     beta_max_users: int = Field(default=3, gt=0, le=3)
+    document_storage_backend: DocumentStorageBackend = "local"
     document_storage_root: Path = Path("data/private-documents")
+    supabase_storage_bucket: str = ""
+    supabase_storage_path_prefix: str = "documents"
     document_max_per_user: int = Field(default=10, gt=0, le=100)
     document_max_pdf_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     document_max_total_size_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
@@ -128,12 +132,51 @@ class Settings(BaseSettings):
         if self.environment == "production":
             if not self.supabase_url or not self.supabase_jwt_issuer or not self.supabase_jwks_url:
                 raise ValueError("production requires Supabase URL, issuer, and JWKS URL")
-            issuer = urlparse(self.supabase_jwt_issuer)
-            if issuer.scheme != "https" or "*" in self.supabase_jwt_issuer:
-                raise ValueError("production JWT issuer must be an exact HTTPS URL")
-            if self.supabase_secret_key is None:
+            for field_name, value in (
+                ("supabase_url", self.supabase_url),
+                ("supabase_jwt_issuer", self.supabase_jwt_issuer),
+                ("supabase_jwks_url", self.supabase_jwks_url),
+                ("frontend_url", self.frontend_url),
+            ):
+                parsed = urlparse(value)
+                if parsed.scheme != "https" or "*" in value:
+                    raise ValueError(f"production {field_name} must be an exact HTTPS URL")
+            if not self._secret_has_value(self.supabase_secret_key):
                 raise ValueError("production invitations require a Supabase server secret key")
+            if not self._secret_has_value(self.ai_provider_api_key):
+                raise ValueError("production requires an AI provider API key")
+            if self.llm_provider == "fake" or self.embedding_provider == "fake":
+                raise ValueError("production cannot use fake AI providers")
+            if self.document_storage_backend != "supabase":
+                raise ValueError("production document storage must use the supabase backend")
+            if not self.supabase_storage_bucket:
+                raise ValueError("production requires a Supabase storage bucket")
+            self._validate_not_local_database_url(
+                self.database_url.get_secret_value(), "database_url"
+            )
+            if self.migration_database_url is not None:
+                self._validate_not_local_database_url(
+                    self.migration_database_url.get_secret_value(), "migration_database_url"
+                )
+            self._validate_not_local_redis_url(self.redis_url.get_secret_value())
         return self
+
+    @staticmethod
+    def _secret_has_value(value: SecretStr | None) -> bool:
+        return bool(value and value.get_secret_value().strip())
+
+    @staticmethod
+    def _validate_not_local_database_url(value: str, field_name: str) -> None:
+        parsed = urlparse(value.replace("postgresql+asyncpg://", "postgresql://", 1))
+        local_hosts = {"", "localhost", "127.0.0.1", "::1", "postgres"}
+        if parsed.hostname in local_hosts or parsed.path.endswith("_test"):
+            raise ValueError(f"production {field_name} cannot point at local or test database")
+
+    @staticmethod
+    def _validate_not_local_redis_url(value: str) -> None:
+        parsed = urlparse(value)
+        if parsed.hostname in {"", "localhost", "127.0.0.1", "::1", "redis"}:
+            raise ValueError("production redis_url cannot point at local Redis")
 
 
 @lru_cache(maxsize=1)

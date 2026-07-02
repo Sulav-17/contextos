@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Archive,
   ChevronRight,
@@ -63,6 +64,85 @@ function sourceBadge(message: ConversationMessage): string {
     return `Used memory + ${count} ${count === 1 ? "document" : "documents"}`;
   }
   return "Not enough evidence";
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const pattern = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<strong key={`bold-${key++}`}>{match[1]}</strong>);
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
+}
+
+function MarkdownBody({ content }: { content: string }) {
+  const blocks: ReactNode[] = [];
+  const lines = content.split(/\r?\n/);
+  let index = 0;
+
+  while (index < lines.length) {
+    while (index < lines.length && lines[index].trim() === "") {
+      index += 1;
+    }
+    if (index >= lines.length) {
+      break;
+    }
+
+    const line = lines[index].trimEnd();
+    const listMatch = /^[-*+]\s+(.+)$/.exec(line.trimStart());
+    if (listMatch) {
+      const items: string[] = [];
+      while (index < lines.length) {
+        const currentLine = lines[index].trimStart();
+        const currentMatch = /^[-*+]\s+(.+)$/.exec(currentLine);
+        if (!currentMatch) {
+          break;
+        }
+        items.push(currentMatch[1]);
+        index += 1;
+      }
+      blocks.push(
+        <ul className="ml-5 list-disc space-y-1" key={`list-${blocks.length}`}>
+          {items.map((item, itemIndex) => (
+            <li key={`${blocks.length}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    const paragraphLines: string[] = [line.trim()];
+    index += 1;
+    while (index < lines.length) {
+      const nextLine = lines[index];
+      if (nextLine.trim() === "") {
+        break;
+      }
+      if (/^[-*+]\s+/.test(nextLine.trimStart())) {
+        break;
+      }
+      paragraphLines.push(nextLine.trim());
+      index += 1;
+    }
+    blocks.push(
+      <p key={`paragraph-${blocks.length}`}>{renderInlineMarkdown(paragraphLines.join(" "))}</p>,
+    );
+  }
+
+  return <div className="space-y-3">{blocks}</div>;
 }
 
 export function ConversationWorkspace({
@@ -625,7 +705,15 @@ export function ConversationWorkspace({
                         ) : null}
                       </div>
                     ) : null}
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                    {message.role === "assistant" ? (
+                      <div className="mt-2 text-sm leading-6">
+                        <MarkdownBody content={message.content} />
+                      </div>
+                    ) : (
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
+                        {message.content}
+                      </p>
+                    )}
                     {message.citations.length > 0 ? (
                       <div className="mt-3 space-y-2">
                         {message.citations.map((citation) => (

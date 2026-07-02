@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { submitQuestionAction } from "@/features/conversations/actions";
@@ -107,6 +107,63 @@ describe("ConversationWorkspace", () => {
     expect(screen.getAllByRole("button", { name: /rename conversation/i }).length).toBeGreaterThan(
       1,
     );
+  });
+
+  it("renders assistant markdown while leaving user messages literal", () => {
+    render(
+      <ConversationWorkspace
+        activeConversation={conversation({
+          messages: [
+            {
+              id: "61000000-0000-4000-8000-000000000020",
+              role: "user",
+              content: "* raw **markdown**",
+              status: "completed",
+              created_at: "2026-07-01T12:00:00Z",
+              memory_references: [],
+              source_mode: "general",
+              citations: [],
+            },
+            {
+              id: "61000000-0000-4000-8000-000000000021",
+              role: "assistant",
+              content: "Summary:\n* first point\n* second point\n\n**Bold answer** stays bold.",
+              status: "completed",
+              created_at: "2026-07-01T12:01:00Z",
+              memory_references: [],
+              source_mode: "documents",
+              citations: [
+                {
+                  citation_index: 1,
+                  document_id: "50000000-0000-4000-8000-000000000001",
+                  document_name: "research.pdf",
+                  page_number: 2,
+                  excerpt: "Summary with citations.",
+                },
+              ],
+            },
+          ],
+        })}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    const userMessage = screen.getByText("user").closest("article");
+    const assistantMessage = screen.getByText("assistant").closest("article");
+
+    expect(userMessage).toBeTruthy();
+    expect(assistantMessage).toBeTruthy();
+    expect(within(userMessage as HTMLElement).getByText("* raw **markdown**")).toBeInTheDocument();
+    expect(within(userMessage as HTMLElement).queryByRole("list")).not.toBeInTheDocument();
+    expect(within(userMessage as HTMLElement).queryByText("markdown", { selector: "strong" })).not.toBeInTheDocument();
+
+    const list = within(assistantMessage as HTMLElement).getByRole("list");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(assistantMessage as HTMLElement).getByText("Bold answer", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getByText("[1] research.pdf, page 2")).toBeInTheDocument();
   });
 
   it("renders the empty conversations state with a clear start action", () => {
@@ -447,7 +504,9 @@ describe("ConversationWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
 
     await waitFor(() => expect(submitQuestionAction).toHaveBeenCalledTimes(1));
-    expect(screen.getByLabelText("Question")).toHaveValue("Try again later.");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Question")).toHaveValue("Try again later."),
+    );
     expect(screen.getByLabelText("research.pdf")).toBeChecked();
   });
 

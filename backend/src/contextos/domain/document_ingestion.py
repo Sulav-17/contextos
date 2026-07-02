@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from io import BytesIO
 from uuid import UUID
@@ -22,8 +23,10 @@ from contextos.domain.documents import (
     replace_chunks,
     store_chunk_embeddings,
 )
-from contextos.infrastructure.document_storage import LocalDocumentStorage
+from contextos.infrastructure.document_storage import build_document_storage
 from contextos.infrastructure.tenant_context import set_tenant_context
+
+logger = logging.getLogger(__name__)
 
 
 class IngestionFailure(Exception):
@@ -107,12 +110,17 @@ def enqueue_document(settings: Settings, document_id: UUID) -> None:
         str(document_id),
         job_timeout=300,
     )
+    logger.info(
+        "document ingestion job enqueued document_id=%s queue=%s",
+        document_id,
+        settings.document_queue_name,
+    )
 
 
 async def process_document(document_id: UUID, settings: Settings) -> None:
     engine = create_async_engine(settings.database_url.get_secret_value(), pool_pre_ping=True)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    storage = LocalDocumentStorage(settings)
+    storage = build_document_storage(settings)
     try:
         async with factory() as session:
             async with session.begin():
@@ -127,8 +135,7 @@ async def process_document(document_id: UUID, settings: Settings) -> None:
                     return
 
         try:
-            path = storage.read_path(document.storage_key)
-            content = path.read_bytes()
+            content = storage.read_bytes(document.storage_key)
             page_count, character_count, chunks = extract_pdf_chunks(
                 content,
                 max_pages=settings.document_max_pages,
@@ -136,6 +143,11 @@ async def process_document(document_id: UUID, settings: Settings) -> None:
                 chunk_overlap=settings.document_chunk_overlap,
             )
         except IngestionFailure as failure:
+            logger.warning(
+                "document ingestion failed document_id=%s code=%s",
+                document_id,
+                failure.code,
+            )
             async with factory() as session:
                 async with session.begin():
                     await set_tenant_context(session, document_id, "worker")
@@ -147,6 +159,7 @@ async def process_document(document_id: UUID, settings: Settings) -> None:
                     )
             return
         except FileNotFoundError:
+            logger.error("document ingestion file missing document_id=%s", document_id)
             async with factory() as session:
                 async with session.begin():
                     await set_tenant_context(session, document_id, "worker")
@@ -203,6 +216,7 @@ async def process_document(document_id: UUID, settings: Settings) -> None:
                     await set_tenant_context(session, document_id, "worker")
                     await mark_ready(session, document_id)
         except ProviderError:
+            logger.exception("document embedding provider failed document_id=%s", document_id)
             async with factory() as session:
                 async with session.begin():
                     await set_tenant_context(session, document_id, "worker")
@@ -212,6 +226,8 @@ async def process_document(document_id: UUID, settings: Settings) -> None:
                         failure_code="embedding_failed",
                         failure_reason="Document text could not be embedded.",
                     )
+        else:
+            logger.info("document ingestion completed document_id=%s", document_id)
     finally:
         await engine.dispose()
 

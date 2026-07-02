@@ -29,7 +29,7 @@ from contextos.domain.documents import (
     soft_delete_document,
     total_active_document_size,
 )
-from contextos.infrastructure.document_storage import LocalDocumentStorage
+from contextos.infrastructure.document_storage import LocalDocumentStorage, build_document_storage
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 AUTH_CONTEXT = Depends(require_auth)
@@ -90,8 +90,8 @@ async def upload_document(
     if total_size + len(content) > settings.document_max_total_size_bytes:
         raise ContextOSError(DOCUMENT_STORAGE_LIMIT_REACHED)
 
-    storage = LocalDocumentStorage(settings)
-    stored = storage.write(content)
+    storage = build_document_storage(settings)
+    stored = storage.write(content, user_id=context.user.id)
     try:
         document = await create_queued_document(
             context.session,
@@ -132,22 +132,30 @@ async def read_document(
     return DocumentResponse.model_validate(document.model_dump())
 
 
-@router.get("/{document_id}/download")
+@router.get("/{document_id}/download", response_model=None)
 async def download_document(
     document_id: UUID,
     context: AuthContext = AUTH_CONTEXT,
-) -> FileResponse:
+) -> Response:
     settings = context.settings
     document = await get_document(context.session, user_id=context.user.id, document_id=document_id)
     if document is None:
         raise ContextOSError(DOCUMENT_NOT_FOUND)
-    path = LocalDocumentStorage(settings).read_path(document.storage_key)
-    return FileResponse(
-        path,
-        media_type="application/pdf",
-        filename=document.original_filename,
-        headers=NO_STORE_HEADERS,
-    )
+    storage = build_document_storage(settings)
+    if isinstance(storage, LocalDocumentStorage):
+        path = storage.read_path(document.storage_key)
+        return FileResponse(
+            path,
+            media_type="application/pdf",
+            filename=document.original_filename,
+            headers=NO_STORE_HEADERS,
+        )
+    content = storage.read_bytes(document.storage_key)
+    headers = {
+        **NO_STORE_HEADERS,
+        "Content-Disposition": f'attachment; filename="{document.original_filename}"',
+    }
+    return Response(content=content, media_type="application/pdf", headers=headers)
 
 
 @router.delete("/{document_id}", status_code=204)
@@ -161,7 +169,7 @@ async def delete_document(
     )
     if document is None:
         raise ContextOSError(DOCUMENT_NOT_FOUND)
-    LocalDocumentStorage(settings).delete(document.storage_key)
+    build_document_storage(settings).delete(document.storage_key)
     return Response(status_code=204, headers=NO_STORE_HEADERS)
 
 

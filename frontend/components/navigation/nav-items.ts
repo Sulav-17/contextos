@@ -1,11 +1,9 @@
 import {
-  Archive,
   BookOpen,
   Brain,
   Home,
   MessagesSquare,
   Settings,
-  Upload,
   type LucideIcon,
 } from "lucide-react";
 
@@ -24,7 +22,5 @@ export const primaryNavItems: NavItem[] = [
 ] as const;
 
 export const secondaryNavItems: NavItem[] = [
-  { href: "/projects", label: "Projects", icon: Archive },
-  { href: "/uploads", label: "Uploads", icon: Upload },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;

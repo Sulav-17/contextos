@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
@@ -10,6 +11,7 @@ from contextos.infrastructure.database import DatabaseResource
 from contextos.infrastructure.redis_client import RedisResource
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/health")
@@ -37,6 +39,8 @@ async def ready(request: Request) -> JSONResponse:
         "database": "ok" if database_ok else "unavailable",
         "redis": "ok" if redis_ok else "unavailable",
     }
+    if not database_ok or not redis_ok:
+        logger.error("readiness check failed checks=%s", checks)
 
     payload: dict[str, str | dict[str, str]] = {
         "status": "ready" if database_ok and redis_ok else "not_ready",

@@ -333,6 +333,50 @@ def test_tenant_safe_list_detail_download_retry_and_delete(
     assert list_after.json()["documents"] == []
 
 
+def test_remote_storage_download_preserves_no_store_headers(
+    build_client: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeRemoteStorage:
+        def write(self, content: bytes, *, user_id: UUID) -> object:
+            return type(
+                "Stored",
+                (),
+                {
+                    "storage_key": f"documents/users/{user_id}/documents/stored.pdf",
+                    "checksum_sha256": "a" * 64,
+                    "size_bytes": len(content),
+                },
+            )()
+
+        def read_bytes(self, storage_key: str) -> bytes:
+            return b"%PDF-1.4\nremote"
+
+        def delete(self, storage_key: str) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "contextos.api.routes.documents.build_document_storage",
+        lambda settings: FakeRemoteStorage(),
+    )
+    with build_client(document_storage_backend="supabase") as client:
+        upload = client.post(
+            "/api/v1/documents",
+            headers={"Authorization": "Bearer user-a"},
+            files={"file": ("remote.pdf", pdf_bytes(["Remote."]), "application/pdf")},
+        )
+        document_id = upload.json()["id"]
+        download = client.get(
+            f"/api/v1/documents/{document_id}/download",
+            headers={"Authorization": "Bearer user-a"},
+        )
+
+    assert download.status_code == 200
+    assert download.content == b"%PDF-1.4\nremote"
+    assert download.headers["Cache-Control"] == "private, no-store"
+    assert download.headers["Content-Type"] == "application/pdf"
+
+
 @pytest.mark.asyncio
 async def test_successful_extraction_deterministic_chunks_and_retry_idempotency(
     build_client: Callable[..., TestClient],

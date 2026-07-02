@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import logging
+
 from redis import Redis
 from rq import Worker
 
 from contextos.core.config import get_settings
 from contextos.core.logging import configure_logging
 
+logger = logging.getLogger(__name__)
+
 
 def main() -> None:
     settings = get_settings()
     configure_logging(log_level=settings.log_level, log_format=settings.log_format)
+    logger.info(
+        "starting ContextOS worker environment=%s queue=%s storage_backend=%s",
+        settings.environment,
+        settings.document_queue_name,
+        settings.document_storage_backend,
+    )
     redis = Redis.from_url(settings.redis_url.get_secret_value())
     worker = Worker([settings.document_queue_name], connection=redis)
     worker.work()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Protocol
@@ -26,6 +27,7 @@ class LifespanResource(Protocol):
 type ResourceFactory = Callable[[Settings], LifespanResource]
 SENSITIVE_API_PREFIX = "/api/v1/"
 NO_STORE = "private, no-store"
+logger = logging.getLogger(__name__)
 
 
 def build_invitation_provider(settings: Settings) -> object:
@@ -43,6 +45,13 @@ def create_app(
 ) -> FastAPI:
     app_settings = settings or get_settings()
     configure_logging(log_level=app_settings.log_level, log_format=app_settings.log_format)
+    logger.info(
+        "starting ContextOS API environment=%s log_format=%s storage_backend=%s queue=%s",
+        app_settings.environment,
+        app_settings.log_format,
+        app_settings.document_storage_backend,
+        app_settings.document_queue_name,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

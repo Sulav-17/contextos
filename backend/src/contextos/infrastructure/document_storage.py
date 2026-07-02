@@ -5,7 +5,10 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from uuid import uuid4
+from typing import Protocol
+from uuid import UUID, uuid4
+
+import httpx
 
 from contextos.core.config import Settings
 
@@ -15,6 +18,12 @@ class StoredDocument:
     storage_key: str
     checksum_sha256: str
     size_bytes: int
+
+
+class DocumentStorage(Protocol):
+    def write(self, content: bytes, *, user_id: UUID) -> StoredDocument: ...
+    def read_bytes(self, storage_key: str) -> bytes: ...
+    def delete(self, storage_key: str) -> None: ...
 
 
 class LocalDocumentStorage:
@@ -38,7 +47,7 @@ class LocalDocumentStorage:
             raise ValueError("storage key escaped root")
         return path
 
-    def write(self, content: bytes) -> StoredDocument:
+    def write(self, content: bytes, *, user_id: UUID) -> StoredDocument:
         root = self._ensure_root()
         storage_key = f"{uuid4()}.pdf"
         destination = self._resolve_key(storage_key)
@@ -67,7 +76,94 @@ class LocalDocumentStorage:
             raise FileNotFoundError(storage_key)
         return path
 
+    def read_bytes(self, storage_key: str) -> bytes:
+        return self.read_path(storage_key).read_bytes()
+
     def delete(self, storage_key: str) -> None:
         path = self._resolve_key(storage_key)
         if path.exists() and not path.is_symlink():
             path.unlink()
+
+
+class SupabaseDocumentStorage:
+    def __init__(self, settings: Settings) -> None:
+        if settings.supabase_secret_key is None:
+            raise ValueError("Supabase storage requires a server secret key")
+        if not settings.supabase_url or not settings.supabase_storage_bucket:
+            raise ValueError("Supabase storage requires URL and bucket configuration")
+        self._base_url = settings.supabase_url.rstrip("/")
+        self._bucket = settings.supabase_storage_bucket
+        self._path_prefix = settings.supabase_storage_path_prefix.strip("/")
+        self._secret_key = settings.supabase_secret_key.get_secret_value()
+        self._timeout = settings.readiness_timeout_seconds
+
+    def write(self, content: bytes, *, user_id: UUID) -> StoredDocument:
+        storage_key = self._storage_key(user_id)
+        checksum = hashlib.sha256(content).hexdigest()
+        response = httpx.post(
+            self._object_url(storage_key),
+            content=content,
+            headers={
+                "Authorization": f"Bearer {self._secret_key}",
+                "Content-Type": "application/pdf",
+                "x-upsert": "false",
+            },
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+        return StoredDocument(
+            storage_key=storage_key,
+            checksum_sha256=checksum,
+            size_bytes=len(content),
+        )
+
+    def read_bytes(self, storage_key: str) -> bytes:
+        self._validate_storage_key(storage_key)
+        response = httpx.get(
+            self._object_url(storage_key),
+            headers={"Authorization": f"Bearer {self._secret_key}"},
+            timeout=self._timeout,
+        )
+        if response.status_code == 404:
+            raise FileNotFoundError(storage_key)
+        response.raise_for_status()
+        return response.content
+
+    def delete(self, storage_key: str) -> None:
+        self._validate_storage_key(storage_key)
+        response = httpx.request(
+            "DELETE",
+            f"{self._base_url}/storage/v1/object/{self._bucket}",
+            headers={
+                "Authorization": f"Bearer {self._secret_key}",
+                "Content-Type": "application/json",
+            },
+            json={"prefixes": [storage_key]},
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+
+    def _storage_key(self, user_id: UUID) -> str:
+        prefix = f"{self._path_prefix}/" if self._path_prefix else ""
+        return f"{prefix}users/{user_id}/documents/{uuid4()}.pdf"
+
+    def _object_url(self, storage_key: str) -> str:
+        self._validate_storage_key(storage_key)
+        return f"{self._base_url}/storage/v1/object/{self._bucket}/{storage_key}"
+
+    def _validate_storage_key(self, storage_key: str) -> None:
+        if storage_key in {"", ".", ".."} or "\\" in storage_key:
+            raise ValueError("invalid storage key")
+        parts = storage_key.split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            raise ValueError("invalid storage key")
+        if not storage_key.endswith(".pdf"):
+            raise ValueError("invalid storage key")
+
+
+def build_document_storage(settings: Settings) -> DocumentStorage:
+    if settings.document_storage_backend == "local":
+        return LocalDocumentStorage(settings)
+    if settings.document_storage_backend == "supabase":
+        return SupabaseDocumentStorage(settings)
+    raise ValueError("unsupported document storage backend")
