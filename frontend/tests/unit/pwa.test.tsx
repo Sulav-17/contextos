@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import manifest from "@/app/manifest";
+import { clearPrivateClientState } from "@/components/auth/client-state";
 import { InstallControl } from "@/components/pwa/install-control";
 import { OfflineStatus } from "@/components/pwa/offline-status";
 import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
@@ -100,5 +101,29 @@ describe("service worker cache safety", () => {
     expect(source).toContain('fetch(request, { cache: "no-store" })');
     expect(source).not.toContain('addEventListener("sync"');
     expect(source).not.toContain("mutation");
+  });
+});
+
+describe("private client state cleanup", () => {
+  it("clears drafts, ContextOS local state, and app caches on logout", async () => {
+    const deleteCache = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(window, "caches", {
+      configurable: true,
+      value: {
+        keys: vi.fn().mockResolvedValue(["contextos-static-v1", "other-cache"]),
+        delete: deleteCache,
+      },
+    });
+    window.sessionStorage.setItem("contextos.conversationDraft.1", "private draft");
+    window.localStorage.setItem("contextos.theme", "dark");
+    window.localStorage.setItem("unrelated", "keep");
+
+    await clearPrivateClientState();
+
+    expect(window.sessionStorage.getItem("contextos.conversationDraft.1")).toBeNull();
+    expect(window.localStorage.getItem("contextos.theme")).toBeNull();
+    expect(window.localStorage.getItem("unrelated")).toBe("keep");
+    expect(deleteCache).toHaveBeenCalledWith("contextos-static-v1");
+    expect(deleteCache).not.toHaveBeenCalledWith("other-cache");
   });
 });

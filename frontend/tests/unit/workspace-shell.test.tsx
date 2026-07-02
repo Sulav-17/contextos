@@ -49,7 +49,9 @@ describe("WorkspaceShell", () => {
     expect(container.querySelector('[data-app-shell="workspace"]')).toBeTruthy();
     expect(container.querySelector(".flex.h-dvh.overflow-hidden")).toBeTruthy();
     expect(container.querySelector("main")).toHaveClass("overflow-y-auto");
-    expect(container.querySelectorAll("header .hidden.md\\:inline-flex")).toHaveLength(2);
+    expect(container.querySelectorAll("header .hidden.md\\:inline-flex")).toHaveLength(3);
+    expect(getByText("Theme control").parentElement).toHaveClass("hidden", "md:inline-flex");
+    expect(getByText("Log out").parentElement).toHaveClass("hidden", "md:inline-flex");
     expect(getByText("Workspace content")).toBeInTheDocument();
   });
 });

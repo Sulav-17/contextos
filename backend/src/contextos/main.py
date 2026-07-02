@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Protocol
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
 
 from contextos.api.errors import ContextOSError, contextos_error_handler
 from contextos.api.router import api_router
@@ -23,6 +24,8 @@ class LifespanResource(Protocol):
 
 
 type ResourceFactory = Callable[[Settings], LifespanResource]
+SENSITIVE_API_PREFIX = "/api/v1/"
+NO_STORE = "private, no-store"
 
 
 def build_invitation_provider(settings: Settings) -> object:
@@ -64,6 +67,16 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.settings = app_settings
+
+    @app.middleware("http")
+    async def no_store_sensitive_api(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        response = await call_next(request)
+        if request.url.path.startswith(SENSITIVE_API_PREFIX):
+            response.headers.setdefault("Cache-Control", NO_STORE)
+        return response
+
     app.add_middleware(RequestIdMiddleware)
     app.add_exception_handler(ContextOSError, contextos_error_handler)
     app.include_router(api_router)

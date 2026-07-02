@@ -67,16 +67,14 @@ class FakeChatProvider:
             question = request.user_prompt.split("General question:\n", 1)[-1].strip()
             answer = f"General answer: {question[:240]}"
             return ChatResult(content=answer, provider=self.provider, model=self.model)
-        context_marker = "Document context:\n"
-        memory_marker = "\n\nApproved saved memory:\n"
+        context_marker = "Document context"
+        memory_marker = "\n\nApproved saved memory"
         question_marker = "\n\nQuestion:"
-        if context_marker in request.user_prompt:
-            context = (
-                request.user_prompt.split(context_marker, 1)[-1].split(memory_marker, 1)[0]
-            )
-            memory = (
-                request.user_prompt.split(memory_marker, 1)[-1].split(question_marker, 1)[0]
-            )
+        if request.user_prompt.startswith(context_marker):
+            after_context_heading = request.user_prompt.split(":\n", 1)[-1]
+            context = after_context_heading.split(memory_marker, 1)[0]
+            after_memory_heading = request.user_prompt.split(memory_marker, 1)[-1]
+            memory = after_memory_heading.split(":\n", 1)[-1].split(question_marker, 1)[0]
         else:
             context = request.user_prompt.split("Context:\n", 1)[-1].split(question_marker, 1)[0]
             memory = ""

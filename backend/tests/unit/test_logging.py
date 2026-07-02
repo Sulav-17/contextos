@@ -76,3 +76,29 @@ def test_json_formatter_exception_metadata_stays_safe() -> None:
     assert payload["message"] == "request failed"
     assert payload["exception"] == {"type": "RuntimeError"}
     assert "postgresql+asyncpg://" not in json.dumps(payload)
+
+
+def test_log_formatter_redacts_tokens_secrets_and_private_content() -> None:
+    formatter = JsonFormatter()
+    record = logging.getLogger("contextos.test").makeRecord(
+        name="contextos.test",
+        level=logging.INFO,
+        fn=__file__,
+        lno=1,
+        msg=(
+            "Authorization Bearer raw-token-value "
+            "api_key=sk_private_secret_value_123456 "
+            "document_content=private-pdf-body "
+            "memory_content=private-memory"
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    payload = json.loads(formatter.format(record))
+
+    assert "raw-token-value" not in payload["message"]
+    assert "sk_private_secret_value" not in payload["message"]
+    assert "private-pdf-body" not in payload["message"]
+    assert "private-memory" not in payload["message"]
+    assert "[redacted]" in payload["message"]

@@ -2,12 +2,22 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import TextIO
 
 from contextos.core.request_id import get_request_id
 
 LOG_HANDLER_NAME = "contextos"
+REDACTION_PATTERNS = (
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.I),
+    re.compile(r"\b(?:sk|pk)_[A-Za-z0-9_]{16,}\b"),
+    re.compile(r"\b[A-Za-z0-9_=-]{24,}\.[A-Za-z0-9_=-]{12,}\.[A-Za-z0-9_=-]{12,}\b"),
+    re.compile(r"postgresql(?:\+\w+)?://[^ \t\r\n]+", re.I),
+    re.compile(r"redis://[^ \t\r\n]+", re.I),
+    re.compile(r"(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|password)=([^&\s]+)"),
+    re.compile(r"(?i)(document|memory|prompt)_content=([^&\s]+)"),
+)
 
 
 class RequestIdFilter(logging.Filter):
@@ -24,7 +34,7 @@ class JsonFormatter(logging.Formatter):
             .replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": redact_log_text(record.getMessage()),
         }
         request_id = getattr(record, "request_id", "-")
         if request_id != "-":
@@ -37,6 +47,32 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=True)
 
 
+class RedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        original_msg = record.msg
+        original_args = record.args
+        record.msg = redact_log_text(record.getMessage())
+        record.args = ()
+        try:
+            return super().format(record)
+        finally:
+            record.msg = original_msg
+            record.args = original_args
+
+
+def redact_log_text(value: str) -> str:
+    redacted = value
+    for pattern in REDACTION_PATTERNS:
+        redacted = pattern.sub(lambda match: _redaction_replacement(match), redacted)
+    return redacted
+
+
+def _redaction_replacement(match: re.Match[str]) -> str:
+    if match.lastindex and match.lastindex >= 1:
+        return f"{match.group(1)}=[redacted]"
+    return "[redacted]"
+
+
 def build_handler(log_format: str, stream: TextIO | None = None) -> logging.Handler:
     handler = logging.StreamHandler(stream)
     handler.set_name(LOG_HANDLER_NAME)
@@ -45,7 +81,7 @@ def build_handler(log_format: str, stream: TextIO | None = None) -> logging.Hand
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(
-            logging.Formatter(
+            RedactingFormatter(
                 fmt="%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s",
                 datefmt="%Y-%m-%dT%H:%M:%S%z",
             )

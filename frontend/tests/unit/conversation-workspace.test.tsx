@@ -109,6 +109,21 @@ describe("ConversationWorkspace", () => {
     );
   });
 
+  it("renders the empty conversations state with a clear start action", () => {
+    render(
+      <ConversationWorkspace
+        activeConversation={null}
+        archivedConversations={[]}
+        conversations={[]}
+        documents={[]}
+        usage={usage}
+      />,
+    );
+
+    expect(screen.getByText("No conversations yet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /start new conversation/i })).toBeEnabled();
+  });
+
   it("uses a mobile-safe conversation toolbar and preserves desktop controls", () => {
     const { container } = render(
       <ConversationWorkspace
@@ -216,7 +231,7 @@ describe("ConversationWorkspace", () => {
                   id: "70000000-0000-4000-8000-000000000001",
                   memory_type: "preference",
                   content: "deployment target browser install",
-                  source_conversation_id: null,
+                  source_conversation_id: "60000000-0000-4000-8000-000000000099",
                   source_conversation_title: null,
                 },
               ],
@@ -238,6 +253,10 @@ describe("ConversationWorkspace", () => {
       "/memories",
     );
     expect(screen.getAllByText("Used saved memory")[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /source conversation/i })[0]).toHaveAttribute(
+      "href",
+      "/conversations?conversation=60000000-0000-4000-8000-000000000099",
+    );
   });
 
   it("renders the ContextOS data badge and inspector state", () => {

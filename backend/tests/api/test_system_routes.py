@@ -169,3 +169,14 @@ def test_request_id_response_behavior(
         generated_request_id = generated_response.headers["X-Request-ID"]
         assert generated_request_id != "bad value with spaces"
         assert len(generated_request_id) == 36
+
+
+def test_sensitive_api_errors_are_no_store(
+    make_settings: Callable[..., Settings],
+) -> None:
+    app, _, _ = build_app(make_settings)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/documents")
+
+    assert response.status_code == 401
+    assert response.headers["Cache-Control"] == "private, no-store"

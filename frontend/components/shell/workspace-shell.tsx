@@ -35,7 +35,9 @@ export function WorkspaceShell({
               <div className="hidden md:inline-flex">
                 <InstallControl compact />
               </div>
-              <ThemeControl compact />
+              <div className="hidden md:inline-flex">
+                <ThemeControl compact />
+              </div>
               <div className="hidden md:inline-flex">
                 <LogoutControl />
               </div>

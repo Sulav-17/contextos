@@ -292,186 +292,193 @@ export function ConversationWorkspace({
       </aside>
 
       <section className="quiet-panel surface-enter flex min-h-0 flex-col overflow-hidden rounded-lg p-3 md:p-5">
-        <div className="mb-4 grid gap-3 lg:hidden">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            {isRenaming ? (
-              <form
-                action={renameAction}
-                className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-                onSubmit={(event) => blockOffline(event, "Renaming a conversation")}
-              >
-                <input name="conversation_id" type="hidden" value={activeConversation!.id} />
-                <label className="sr-only" htmlFor="conversation-title-mobile">
-                  Conversation title
-                </label>
-                <input
-                  className="min-h-11 min-w-0 flex-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-inspector)] px-3 text-sm"
-                  defaultValue={activeConversation!.title}
-                  id="conversation-title-mobile"
-                  maxLength={120}
-                  name="title"
-                  required
-                />
-                <button
-                  className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]"
-                  disabled={renamePending || isOffline}
-                >
-                  <Save aria-hidden="true" size={17} />
-                  Save
-                </button>
-                <button
-                  className="touch-target inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap"
-                  onClick={() => setIsRenaming(false)}
-                  type="button"
-                >
-                  Cancel
-                </button>
-              </form>
-            ) : (
-              <div className="flex min-w-0 items-center gap-2">
-                <h2 className="min-w-0 truncate text-lg font-semibold" title={activeConversation!.title}>
-                  {activeConversation!.title}
-                </h2>
-                <button
-                  aria-label="Rename conversation"
-                  className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
-                  onClick={() => setIsRenaming(true)}
-                  type="button"
-                >
-                  <Pencil aria-hidden="true" size={16} />
-                </button>
+        {activeConversation ? (
+          <>
+            <div className="mb-4 grid gap-3 lg:hidden">
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                {isRenaming ? (
+                  <form
+                    action={renameAction}
+                    className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                    onSubmit={(event) => blockOffline(event, "Renaming a conversation")}
+                  >
+                    <input name="conversation_id" type="hidden" value={activeConversation.id} />
+                    <label className="sr-only" htmlFor="conversation-title-mobile">
+                      Conversation title
+                    </label>
+                    <input
+                      className="min-h-11 min-w-0 flex-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-inspector)] px-3 text-sm"
+                      defaultValue={activeConversation.title}
+                      id="conversation-title-mobile"
+                      maxLength={120}
+                      name="title"
+                      required
+                    />
+                    <button
+                      className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-3 text-sm font-semibold text-[#061019]"
+                      disabled={renamePending || isOffline}
+                    >
+                      <Save aria-hidden="true" size={17} />
+                      Save
+                    </button>
+                    <button
+                      className="touch-target inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap"
+                      onClick={() => setIsRenaming(false)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h2
+                      className="min-w-0 truncate text-lg font-semibold"
+                      title={activeConversation.title}
+                    >
+                      {activeConversation.title}
+                    </h2>
+                    <button
+                      aria-label="Rename conversation"
+                      className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
+                      onClick={() => setIsRenaming(true)}
+                      type="button"
+                    >
+                      <Pencil aria-hidden="true" size={16} />
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div className="grid min-w-0 grid-cols-3 gap-2">
-            <button
-              className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-2 text-sm whitespace-nowrap"
-              onClick={() => setHistoryOpen(true)}
-              type="button"
-            >
-              <PanelLeft aria-hidden="true" size={17} />
-              History
-            </button>
-            <button
-              className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-2 text-sm whitespace-nowrap xl:hidden"
-              onClick={() => setInspectorOpen(true)}
-              type="button"
-            >
-              <PanelRight aria-hidden="true" size={17} />
-              Context
-            </button>
-            <form
-              action={createConversationAction}
-              onSubmit={(event) => blockOffline(event, "Starting a conversation")}
-            >
-              <button
-                className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-2 text-sm font-semibold whitespace-nowrap text-[#061019] disabled:opacity-60"
-                disabled={isOffline}
-              >
-                <MessageCirclePlus aria-hidden="true" size={17} />
-                New
-              </button>
-            </form>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {activeConversation!.archived_at ? (
-              <form
-                action={unarchiveConversationAction}
-                onSubmit={(event) => blockOffline(event, "Restoring a conversation")}
-              >
-                <input name="conversation_id" type="hidden" value={activeConversation!.id} />
-                <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap disabled:opacity-60" disabled={isOffline}>
-                  <RotateCcw aria-hidden="true" size={17} />
-                  Restore
+              <div className="grid min-w-0 grid-cols-3 gap-2">
+                <button
+                  className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-2 text-sm whitespace-nowrap"
+                  onClick={() => setHistoryOpen(true)}
+                  type="button"
+                >
+                  <PanelLeft aria-hidden="true" size={17} />
+                  History
                 </button>
-              </form>
-            ) : (
-              <form
-                action={archiveConversationAction}
-                onSubmit={(event) => blockOffline(event, "Archiving a conversation")}
-              >
-                <input name="conversation_id" type="hidden" value={activeConversation!.id} />
-                <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap disabled:opacity-60" disabled={isOffline}>
-                  <Archive aria-hidden="true" size={17} />
-                  Archive
+                <button
+                  className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-2 text-sm whitespace-nowrap xl:hidden"
+                  onClick={() => setInspectorOpen(true)}
+                  type="button"
+                >
+                  <PanelRight aria-hidden="true" size={17} />
+                  Context
                 </button>
-              </form>
-            )}
-            <form
-              action={deleteConversationAction}
-              onSubmit={(event) => blockOffline(event, "Deleting a conversation")}
-            >
-              <input name="conversation_id" type="hidden" value={activeConversation!.id} />
-              <button
-                className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap text-[var(--status-danger)] disabled:opacity-60"
-                onClick={(event) => {
-                  if (!window.confirm("Delete this conversation?")) {
-                    event.preventDefault();
+                <form
+                  action={createConversationAction}
+                  onSubmit={(event) => blockOffline(event, "Starting a conversation")}
+                >
+                  <button
+                    className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-2 text-sm font-semibold whitespace-nowrap text-[#061019] disabled:opacity-60"
+                    disabled={isOffline}
+                  >
+                    <MessageCirclePlus aria-hidden="true" size={17} />
+                    New
+                  </button>
+                </form>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {activeConversation.archived_at ? (
+                  <form
+                    action={unarchiveConversationAction}
+                    onSubmit={(event) => blockOffline(event, "Restoring a conversation")}
+                  >
+                    <input name="conversation_id" type="hidden" value={activeConversation.id} />
+                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap disabled:opacity-60" disabled={isOffline}>
+                      <RotateCcw aria-hidden="true" size={17} />
+                      Restore
+                    </button>
+                  </form>
+                ) : (
+                  <form
+                    action={archiveConversationAction}
+                    onSubmit={(event) => blockOffline(event, "Archiving a conversation")}
+                  >
+                    <input name="conversation_id" type="hidden" value={activeConversation.id} />
+                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap disabled:opacity-60" disabled={isOffline}>
+                      <Archive aria-hidden="true" size={17} />
+                      Archive
+                    </button>
+                  </form>
+                )}
+                <form
+                  action={deleteConversationAction}
+                  onSubmit={(event) => blockOffline(event, "Deleting a conversation")}
+                >
+                  <input name="conversation_id" type="hidden" value={activeConversation.id} />
+                  <button
+                    className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap text-[var(--status-danger)] disabled:opacity-60"
+                    onClick={(event) => {
+                      if (!window.confirm("Delete this conversation?")) {
+                        event.preventDefault();
+                      }
+                    }}
+                    disabled={isOffline}
+                  >
+                    <Trash2 aria-hidden="true" size={17} />
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </div>
+            {historyOpen ? (
+              <div
+                aria-label="Conversation history"
+                aria-modal="true"
+                className="fixed inset-0 z-50 bg-black/50 p-4 lg:hidden"
+                role="dialog"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setHistoryOpen(false);
                   }
                 }}
-                disabled={isOffline}
               >
-                <Trash2 aria-hidden="true" size={17} />
-                Delete
-              </button>
-            </form>
-          </div>
-        </div>
-        {historyOpen ? (
-          <div
-            aria-label="Conversation history"
-            aria-modal="true"
-            className="fixed inset-0 z-50 bg-black/50 p-4 lg:hidden"
-            role="dialog"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setHistoryOpen(false);
-              }
-            }}
-          >
-            <div className="quiet-panel flex h-full max-w-sm flex-col overflow-hidden rounded-lg bg-[var(--surface-raised)] p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="font-semibold">Conversations</h2>
-                <button
-                  aria-label="Close conversation history"
-                  className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
-                  onClick={() => setHistoryOpen(false)}
-                  type="button"
-                >
-                  <X aria-hidden="true" size={17} />
-                </button>
+                <div className="quiet-panel flex h-full max-w-sm flex-col overflow-hidden rounded-lg bg-[var(--surface-raised)] p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="font-semibold">Conversations</h2>
+                    <button
+                      aria-label="Close conversation history"
+                      className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
+                      onClick={() => setHistoryOpen(false)}
+                      type="button"
+                    >
+                      <X aria-hidden="true" size={17} />
+                    </button>
+                  </div>
+                  {renderConversationList()}
+                </div>
               </div>
-              {renderConversationList()}
-            </div>
-          </div>
-        ) : null}
-        {inspectorOpen && latestAssistantMessage ? (
-          <div
-            aria-label="Context inspector"
-            aria-modal="true"
-            className="fixed inset-0 z-50 bg-black/50 p-4 xl:hidden"
-            role="dialog"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setInspectorOpen(false);
-              }
-            }}
-          >
-            <div className="quiet-panel ml-auto flex h-full max-w-sm flex-col overflow-hidden rounded-lg bg-[var(--surface-raised)] p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="font-semibold">Context inspector</h2>
-                <button
-                  aria-label="Close context inspector"
-                  className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
-                  onClick={() => setInspectorOpen(false)}
-                  type="button"
-                >
-                  <X aria-hidden="true" size={17} />
-                </button>
+            ) : null}
+            {inspectorOpen && latestAssistantMessage ? (
+              <div
+                aria-label="Context inspector"
+                aria-modal="true"
+                className="fixed inset-0 z-50 bg-black/50 p-4 xl:hidden"
+                role="dialog"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setInspectorOpen(false);
+                  }
+                }}
+              >
+                <div className="quiet-panel ml-auto flex h-full max-w-sm flex-col overflow-hidden rounded-lg bg-[var(--surface-raised)] p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="font-semibold">Context inspector</h2>
+                    <button
+                      aria-label="Close context inspector"
+                      className="touch-target rounded-lg border border-[var(--border-subtle)] px-3"
+                      onClick={() => setInspectorOpen(false)}
+                      type="button"
+                    >
+                      <X aria-hidden="true" size={17} />
+                    </button>
+                  </div>
+                  <ContextInspector message={latestAssistantMessage} />
+                </div>
               </div>
-              <ContextInspector message={latestAssistantMessage} />
-            </div>
-          </div>
+            ) : null}
+          </>
         ) : null}
         {activeConversation ? (
           <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -753,12 +760,25 @@ export function ConversationWorkspace({
           </div>
         ) : (
           <div className="flex min-h-[30rem] items-center justify-center text-center">
-            <div>
+            <div className="max-w-xl">
               <h2 className="text-xl font-semibold">No conversations yet</h2>
               <p className="mt-2 text-sm text-[var(--text-secondary)]">
                 Start a conversation to chat generally, ask from selected documents, or use
                 authenticated ContextOS workspace data.
               </p>
+              <form
+                action={createConversationAction}
+                className="mt-6"
+                onSubmit={(event) => blockOffline(event, "Starting a conversation")}
+              >
+                <button
+                  className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019] disabled:opacity-60"
+                  disabled={isOffline}
+                >
+                  <MessageCirclePlus aria-hidden="true" size={17} />
+                  Start new conversation
+                </button>
+              </form>
             </div>
           </div>
         )}
