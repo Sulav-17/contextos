@@ -15,6 +15,7 @@ from contextos.auth.errors import (
     DOCUMENT_STORAGE_LIMIT_REACHED,
     DOCUMENT_TOO_LARGE,
     DOCUMENT_TOO_MANY_PAGES,
+    PROVIDER_UNAVAILABLE,
 )
 from contextos.domain.document_ingestion import IngestionFailure, count_pdf_pages, enqueue_document
 from contextos.domain.documents import (
@@ -29,7 +30,11 @@ from contextos.domain.documents import (
     soft_delete_document,
     total_active_document_size,
 )
-from contextos.infrastructure.document_storage import LocalDocumentStorage, build_document_storage
+from contextos.infrastructure.document_storage import (
+    LocalDocumentStorage,
+    SupabaseStorageError,
+    build_document_storage,
+)
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 AUTH_CONTEXT = Depends(require_auth)
@@ -91,7 +96,10 @@ async def upload_document(
         raise ContextOSError(DOCUMENT_STORAGE_LIMIT_REACHED)
 
     storage = build_document_storage(settings)
-    stored = storage.write(content, user_id=context.user.id)
+    try:
+        stored = storage.write(content, user_id=context.user.id)
+    except SupabaseStorageError as exc:
+        raise ContextOSError(PROVIDER_UNAVAILABLE) from exc
     try:
         document = await create_queued_document(
             context.session,
@@ -104,7 +112,10 @@ async def upload_document(
             page_count=page_count,
         )
     except Exception:
-        storage.delete(stored.storage_key)
+        try:
+            storage.delete(stored.storage_key)
+        except SupabaseStorageError as delete_exc:
+            raise ContextOSError(PROVIDER_UNAVAILABLE) from delete_exc
         raise
     _enqueue_later(background_tasks, context, document.id)
     return document
@@ -150,7 +161,10 @@ async def download_document(
             filename=document.original_filename,
             headers=NO_STORE_HEADERS,
         )
-    content = storage.read_bytes(document.storage_key)
+    try:
+        content = storage.read_bytes(document.storage_key)
+    except SupabaseStorageError as exc:
+        raise ContextOSError(PROVIDER_UNAVAILABLE) from exc
     headers = {
         **NO_STORE_HEADERS,
         "Content-Disposition": f'attachment; filename="{document.original_filename}"',
@@ -169,7 +183,10 @@ async def delete_document(
     )
     if document is None:
         raise ContextOSError(DOCUMENT_NOT_FOUND)
-    build_document_storage(settings).delete(document.storage_key)
+    try:
+        build_document_storage(settings).delete(document.storage_key)
+    except SupabaseStorageError as exc:
+        raise ContextOSError(PROVIDER_UNAVAILABLE) from exc
     return Response(status_code=204, headers=NO_STORE_HEADERS)
 
 

@@ -18,6 +18,7 @@ from contextos.auth.principal import Principal
 from contextos.core.config import Settings
 from contextos.domain.document_ingestion import extract_pdf_chunks, process_document
 from contextos.infrastructure.database import DatabaseResource
+from contextos.infrastructure.document_storage import SupabaseStorageError
 from contextos.main import create_app
 from tests.support import ensure_test_database, required_env, required_test_database_url
 
@@ -375,6 +376,37 @@ def test_remote_storage_download_preserves_no_store_headers(
     assert download.content == b"%PDF-1.4\nremote"
     assert download.headers["Cache-Control"] == "private, no-store"
     assert download.headers["Content-Type"] == "application/pdf"
+
+
+def test_supabase_upload_failure_returns_safe_provider_error(
+    build_client: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingRemoteStorage:
+        def write(self, content: bytes, *, user_id: UUID) -> object:
+            raise SupabaseStorageError("Supabase storage request failed")
+
+        def read_bytes(self, storage_key: str) -> bytes:
+            return b"%PDF-1.4\nremote"
+
+        def delete(self, storage_key: str) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "contextos.api.routes.documents.build_document_storage",
+        lambda settings: FailingRemoteStorage(),
+    )
+    with build_client(document_storage_backend="supabase") as client:
+        response = client.post(
+            "/api/v1/documents",
+            headers={"Authorization": "Bearer user-a"},
+            files={"file": ("remote.pdf", pdf_bytes(["Remote."]), "application/pdf")},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+    assert "server-secret" not in response.text
+    assert "private-documents" not in response.text
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,10 @@ class StoredDocument:
     size_bytes: int
 
 
+class SupabaseStorageError(RuntimeError):
+    pass
+
+
 class DocumentStorage(Protocol):
     def write(self, content: bytes, *, user_id: UUID) -> StoredDocument: ...
     def read_bytes(self, storage_key: str) -> bytes: ...
@@ -100,17 +104,21 @@ class SupabaseDocumentStorage:
     def write(self, content: bytes, *, user_id: UUID) -> StoredDocument:
         storage_key = self._storage_key(user_id)
         checksum = hashlib.sha256(content).hexdigest()
-        response = httpx.post(
-            self._object_url(storage_key),
-            content=content,
-            headers={
-                "Authorization": f"Bearer {self._secret_key}",
-                "Content-Type": "application/pdf",
-                "x-upsert": "false",
-            },
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
+        try:
+            response = httpx.post(
+                self._object_url(storage_key),
+                content=content,
+                headers=self._supabase_auth_headers(
+                    {
+                        "Content-Type": "application/pdf",
+                        "x-upsert": "false",
+                    }
+                ),
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise SupabaseStorageError("Supabase storage request failed") from exc
         return StoredDocument(
             storage_key=storage_key,
             checksum_sha256=checksum,
@@ -119,29 +127,35 @@ class SupabaseDocumentStorage:
 
     def read_bytes(self, storage_key: str) -> bytes:
         self._validate_storage_key(storage_key)
-        response = httpx.get(
-            self._object_url(storage_key),
-            headers={"Authorization": f"Bearer {self._secret_key}"},
-            timeout=self._timeout,
-        )
+        try:
+            response = httpx.get(
+                self._object_url(storage_key),
+                headers=self._supabase_auth_headers(),
+                timeout=self._timeout,
+            )
+        except httpx.HTTPError as exc:
+            raise SupabaseStorageError("Supabase storage request failed") from exc
         if response.status_code == 404:
             raise FileNotFoundError(storage_key)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise SupabaseStorageError("Supabase storage request failed") from exc
         return response.content
 
     def delete(self, storage_key: str) -> None:
         self._validate_storage_key(storage_key)
-        response = httpx.request(
-            "DELETE",
-            f"{self._base_url}/storage/v1/object/{self._bucket}",
-            headers={
-                "Authorization": f"Bearer {self._secret_key}",
-                "Content-Type": "application/json",
-            },
-            json={"prefixes": [storage_key]},
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
+        try:
+            response = httpx.request(
+                "DELETE",
+                f"{self._base_url}/storage/v1/object/{self._bucket}",
+                headers=self._supabase_auth_headers({"Content-Type": "application/json"}),
+                json={"prefixes": [storage_key]},
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise SupabaseStorageError("Supabase storage request failed") from exc
 
     def _storage_key(self, user_id: UUID) -> str:
         prefix = f"{self._path_prefix}/" if self._path_prefix else ""
@@ -159,6 +173,15 @@ class SupabaseDocumentStorage:
             raise ValueError("invalid storage key")
         if not storage_key.endswith(".pdf"):
             raise ValueError("invalid storage key")
+
+    def _supabase_auth_headers(self, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {self._secret_key}",
+            "apikey": self._secret_key,
+        }
+        if extra_headers:
+            headers.update(extra_headers)
+        return headers
 
 
 def build_document_storage(settings: Settings) -> DocumentStorage:

@@ -11,6 +11,7 @@ from contextos.core.config import Settings
 from contextos.infrastructure.document_storage import (
     LocalDocumentStorage,
     SupabaseDocumentStorage,
+    SupabaseStorageError,
     build_document_storage,
 )
 
@@ -103,6 +104,52 @@ def test_supabase_document_storage_uses_private_tenant_scoped_paths(
     assert content == b"%PDF-1.4\nstored"
     assert "server-secret" not in stored.storage_key
     assert calls[0][0] == "POST"
+    assert calls[0][2] == {
+        "Authorization": "Bearer server-secret",
+        "apikey": "server-secret",
+        "Content-Type": "application/pdf",
+        "x-upsert": "false",
+    }
     assert calls[1][0] == "GET"
+    assert calls[1][2] == {
+        "Authorization": "Bearer server-secret",
+        "apikey": "server-secret",
+    }
     assert calls[2][0] == "DELETE"
+    assert calls[2][2] == {
+        "Authorization": "Bearer server-secret",
+        "apikey": "server-secret",
+        "Content-Type": "application/json",
+    }
     assert calls[2][4] == {"prefixes": [stored.storage_key]}
+
+
+def test_supabase_document_storage_wraps_http_errors_without_leaking_secrets(
+    make_settings: Callable[..., Settings],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(
+        url: str,
+        *,
+        content: bytes,
+        headers: dict[str, str],
+        timeout: float,
+    ) -> httpx.Response:
+        response = httpx.Response(400, text="server-secret", request=httpx.Request("POST", url))
+        response.raise_for_status()
+        return response
+
+    monkeypatch.setattr("contextos.infrastructure.document_storage.httpx.post", fake_post)
+    settings = make_settings(
+        document_storage_backend="supabase",
+        supabase_url="https://project.supabase.co",
+        supabase_secret_key="server-secret",
+        supabase_storage_bucket="contextos-private-documents",
+    )
+    storage = SupabaseDocumentStorage(settings)
+
+    with pytest.raises(SupabaseStorageError) as exc_info:
+        storage.write(b"%PDF-1.4\nstored", user_id=USER_ID)
+
+    assert "server-secret" not in str(exc_info.value)
+    assert "private-documents" not in str(exc_info.value)
