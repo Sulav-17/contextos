@@ -40,14 +40,31 @@ function mockCanvasContext() {
 }
 
 describe("SimulationBackdrop", () => {
+  let idleCallback: (() => void) | null;
+
   beforeEach(() => {
+    idleCallback = null;
     mockMatchMedia();
     mockCanvasContext();
     vi.spyOn(window, "requestAnimationFrame").mockReturnValue(1);
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    Object.defineProperty(window, "requestIdleCallback", {
+      configurable: true,
+      writable: true,
+      value: vi.fn((callback: () => void) => {
+        idleCallback = callback;
+        return 1;
+      }),
+    });
+    Object.defineProperty(window, "cancelIdleCallback", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    });
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -62,8 +79,13 @@ describe("SimulationBackdrop", () => {
     expect(document.querySelectorAll("canvas")).toHaveLength(1);
   });
 
-  it("runs the animation loop for normal motion users", () => {
+  it("defers the animation loop until the browser is idle", () => {
     render(<SimulationBackdrop />);
+
+    expect(window.requestIdleCallback).toHaveBeenCalled();
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled();
+
+    idleCallback?.();
 
     expect(window.requestAnimationFrame).toHaveBeenCalled();
   });
@@ -71,6 +93,17 @@ describe("SimulationBackdrop", () => {
   it("does not run continuous animation for reduced-motion users", () => {
     mockMatchMedia({ reduced: true });
     render(<SimulationBackdrop />);
+
+    idleCallback?.();
+
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled();
+  });
+
+  it("renders a static backdrop for coarse pointers", () => {
+    mockMatchMedia({ coarse: true });
+    render(<SimulationBackdrop />);
+
+    idleCallback?.();
 
     expect(window.requestAnimationFrame).not.toHaveBeenCalled();
   });
@@ -88,13 +121,18 @@ describe("SimulationBackdrop", () => {
     );
   });
 
-  it("throttles resize work to one animation frame", () => {
+  it("debounces resize work without scheduling animation frames", () => {
+    vi.useFakeTimers();
     render(<SimulationBackdrop />);
     vi.mocked(window.requestAnimationFrame).mockClear();
 
     window.dispatchEvent(new Event("resize"));
     window.dispatchEvent(new Event("resize"));
 
-    expect(window.requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(140);
+
+    expect(HTMLCanvasElement.prototype.getContext).toHaveBeenCalled();
   });
 });

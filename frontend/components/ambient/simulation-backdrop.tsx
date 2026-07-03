@@ -31,12 +31,14 @@ type Palette = {
   trail: string;
 };
 
-const DESKTOP_MIN_PARTICLES = 48;
-const DESKTOP_MAX_PARTICLES = 96;
-const MOBILE_MIN_PARTICLES = 18;
-const MOBILE_MAX_PARTICLES = 42;
-const MAX_CONNECTIONS_DESKTOP = 96;
-const MAX_CONNECTIONS_MOBILE = 24;
+const DESKTOP_MIN_PARTICLES = 28;
+const DESKTOP_MAX_PARTICLES = 56;
+const MOBILE_MIN_PARTICLES = 8;
+const MOBILE_MAX_PARTICLES = 16;
+const MAX_CONNECTIONS_DESKTOP = 36;
+const MAX_CONNECTIONS_MOBILE = 8;
+const FRAME_INTERVAL_MS = 1000 / 30;
+const RESIZE_DEBOUNCE_MS = 140;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -73,9 +75,9 @@ function getPalette(): Palette {
 function particleTarget(width: number, height: number, coarsePointer: boolean): number {
   const area = width * height;
   if (coarsePointer || width < 760) {
-    return clamp(Math.round(area / 22000), MOBILE_MIN_PARTICLES, MOBILE_MAX_PARTICLES);
+    return clamp(Math.round(area / 42000), MOBILE_MIN_PARTICLES, MOBILE_MAX_PARTICLES);
   }
-  return clamp(Math.round(area / 18000), DESKTOP_MIN_PARTICLES, DESKTOP_MAX_PARTICLES);
+  return clamp(Math.round(area / 34000), DESKTOP_MIN_PARTICLES, DESKTOP_MAX_PARTICLES);
 }
 
 function createParticle(width: number, height: number, edge = false): Particle {
@@ -125,8 +127,18 @@ function flowVector(x: number, y: number, time: number, width: number, height: n
   };
 }
 
-function setCanvasSize(canvas: HTMLCanvasElement, width: number, height: number): number {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+function isStaticBackdrop(width: number, coarsePointer: boolean): boolean {
+  return coarsePointer || width < 760;
+}
+
+function setCanvasSize(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+  coarsePointer: boolean,
+): number {
+  const maxDpr = isStaticBackdrop(width, coarsePointer) ? 1 : 1.5;
+  const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
   canvas.width = Math.max(1, Math.floor(width * dpr));
   canvas.height = Math.max(1, Math.floor(height * dpr));
   canvas.style.width = `${width}px`;
@@ -164,10 +176,14 @@ export function SimulationBackdrop() {
 
     let width = window.innerWidth;
     let height = window.innerHeight;
-    let dpr = setCanvasSize(canvas, width, height);
+    let dpr = setCanvasSize(canvas, width, height, coarsePointerQuery.matches);
     let animationFrame: number | null = null;
-    let resizeFrame: number | null = null;
+    let idleHandle: number | null = null;
+    let idleTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
+    let resizeTimeout: number | null = null;
     let running = false;
+    let initialized = false;
+    let lastFrameTime = 0;
 
     function seedParticles() {
       const target = particleTarget(width, height, coarsePointerQuery.matches);
@@ -184,30 +200,29 @@ export function SimulationBackdrop() {
       const color = isTrail ? palette.trail : palette.particle[particle.tone % palette.particle.length];
       context.beginPath();
       context.fillStyle = color.replace(/[\d.]+\)$/u, `${alpha})`);
-      context.shadowColor = color;
-      context.shadowBlur = isTrail ? 16 : 10;
       context.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
       context.fill();
-      context.shadowBlur = 0;
     }
 
     function drawConnections(palette: Palette) {
       const isMobile = coarsePointerQuery.matches || width < 760;
       const distance = isMobile ? 74 : 112;
+      const maxGap = distance * distance;
       const maxConnections = isMobile ? MAX_CONNECTIONS_MOBILE : MAX_CONNECTIONS_DESKTOP;
+      const step = isMobile ? 3 : 2;
       let drawn = 0;
 
-      for (let i = 0; i < particles.length; i += 1) {
-        for (let j = i + 1; j < particles.length; j += 1) {
+      for (let i = 0; i < particles.length; i += step) {
+        for (let j = i + step; j < particles.length; j += step) {
           const first = particles[i];
           const second = particles[j];
           const dx = first.x - second.x;
           const dy = first.y - second.y;
-          const gap = Math.hypot(dx, dy);
-          if (gap > distance) {
+          const gap = dx * dx + dy * dy;
+          if (gap > maxGap) {
             continue;
           }
-          const alpha = (1 - gap / distance) * (isMobile ? 0.16 : 0.28);
+          const alpha = (1 - Math.sqrt(gap) / distance) * (isMobile ? 0.12 : 0.2);
           context.beginPath();
           context.strokeStyle = palette.connection.replace(/[\d.]+\)$/u, `${alpha})`);
           context.lineWidth = 0.75;
@@ -289,12 +304,20 @@ export function SimulationBackdrop() {
       if (!running) {
         return;
       }
-      drawFrame(time);
+      if (time - lastFrameTime >= FRAME_INTERVAL_MS) {
+        lastFrameTime = time;
+        drawFrame(time);
+      }
       animationFrame = window.requestAnimationFrame(tick);
     }
 
     function start() {
-      if (running || reducedMotionQuery.matches || document.hidden) {
+      if (
+        running ||
+        reducedMotionQuery.matches ||
+        isStaticBackdrop(width, coarsePointerQuery.matches) ||
+        document.hidden
+      ) {
         return;
       }
       running = true;
@@ -307,6 +330,7 @@ export function SimulationBackdrop() {
         window.cancelAnimationFrame(animationFrame);
         animationFrame = null;
       }
+      lastFrameTime = 0;
     }
 
     function drawStaticSnapshot() {
@@ -319,21 +343,26 @@ export function SimulationBackdrop() {
     }
 
     function resizeCanvas() {
-      resizeFrame = null;
       width = window.innerWidth;
       height = window.innerHeight;
-      dpr = setCanvasSize(canvas, width, height);
+      dpr = setCanvasSize(canvas, width, height, coarsePointerQuery.matches);
       seedParticles();
-      if (reducedMotionQuery.matches) {
+      if (reducedMotionQuery.matches || isStaticBackdrop(width, coarsePointerQuery.matches)) {
+        stop();
         drawStaticSnapshot();
+      } else {
+        start();
       }
     }
 
     function onResize() {
-      if (resizeFrame !== null) {
-        return;
+      if (resizeTimeout !== null) {
+        window.clearTimeout(resizeTimeout);
       }
-      resizeFrame = window.requestAnimationFrame(resizeCanvas);
+      resizeTimeout = window.setTimeout(() => {
+        resizeTimeout = null;
+        resizeCanvas();
+      }, RESIZE_DEBOUNCE_MS);
     }
 
     function onVisibilityChange() {
@@ -350,6 +379,10 @@ export function SimulationBackdrop() {
         pointer.active = false;
         drawStaticSnapshot();
       } else {
+        if (isStaticBackdrop(width, coarsePointerQuery.matches)) {
+          drawStaticSnapshot();
+          return;
+        }
         start();
       }
     }
@@ -373,11 +406,20 @@ export function SimulationBackdrop() {
       pointer.active = false;
     }
 
-    seedParticles();
-    if (reducedMotionQuery.matches) {
-      drawStaticSnapshot();
+    function initialize() {
+      initialized = true;
+      seedParticles();
+      if (reducedMotionQuery.matches || isStaticBackdrop(width, coarsePointerQuery.matches)) {
+        drawStaticSnapshot();
+      } else {
+        start();
+      }
+    }
+
+    if ("requestIdleCallback" in window) {
+      idleHandle = window.requestIdleCallback(initialize, { timeout: 700 });
     } else {
-      start();
+      idleTimeout = globalThis.setTimeout(initialize, 240);
     }
 
     window.addEventListener("resize", onResize, { passive: true });
@@ -391,8 +433,16 @@ export function SimulationBackdrop() {
 
     return () => {
       stop();
-      if (resizeFrame !== null) {
-        window.cancelAnimationFrame(resizeFrame);
+      if (idleHandle !== null) {
+        if ("cancelIdleCallback" in window && initialized === false) {
+          window.cancelIdleCallback(idleHandle);
+        }
+      }
+      if (idleTimeout !== null) {
+        globalThis.clearTimeout(idleTimeout);
+      }
+      if (resizeTimeout !== null) {
+        window.clearTimeout(resizeTimeout);
       }
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibilityChange);

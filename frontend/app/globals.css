@@ -678,6 +678,13 @@ textarea:disabled {
 }
 
 @media (pointer: coarse) {
+  .simulation-grid,
+  .simulation-core,
+  .simulation-orbit,
+  .simulation-scan {
+    animation: none !important;
+  }
+
   .simulation-orbit {
     opacity: 0.18;
   }

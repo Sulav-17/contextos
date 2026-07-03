@@ -1573,3 +1573,46 @@ async def test_workspace_state_intents_are_contextos_only_and_skip_provider_call
     assert payload["message"]["content"] == expected_prefix
     assert payload["message"]["citations"] == []
     assert payload["message"]["memory_references"] == []
+
+
+def test_general_chat_without_context_skips_embedding_and_logs_safe_timings(
+    build_client: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_embedding_provider(_settings: Settings) -> object:
+        raise AssertionError("embedding provider should not be built")
+
+    timing_logs: list[tuple[object, ...]] = []
+
+    def capture_timing_log(message: str, *args: object) -> None:
+        timing_logs.append((message, *args))
+
+    monkeypatch.setattr("contextos.domain.chat.build_embedding_provider", fail_embedding_provider)
+    monkeypatch.setattr("contextos.domain.chat.logger.info", capture_timing_log)
+    private_prompt = "Explain latency without using secret-token-123 or private-memory-content."
+
+    with build_client() as client:
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers={"Authorization": "Bearer user-a"},
+            json={"title": "General"},
+        ).json()
+        response = client.post(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers={"Authorization": "Bearer user-a"},
+            json={"question": private_prompt},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["source_mode"] == "general"
+    stages = [str(args[1]) for args in timing_logs]
+    serialized_logs = repr(timing_logs)
+    assert "embedding_skipped" in stages
+    assert "gemini_generation" in stages
+    assert all(
+        args[0] == "conversation_message_stage stage=%s duration_ms=%.2f total_ms=%.2f"
+        for args in timing_logs
+    )
+    assert "secret-token-123" not in serialized_logs
+    assert "private-memory-content" not in serialized_logs
+    assert str(conversation["id"]) not in serialized_logs

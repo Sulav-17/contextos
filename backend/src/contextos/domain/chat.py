@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Literal, cast
@@ -53,6 +55,7 @@ DEFAULT_CONVERSATION_TITLE = "New conversation"
 MAX_CONVERSATION_TITLE_LENGTH = 120
 AUTO_TITLE_LENGTH = 60
 CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+")
+logger = logging.getLogger(__name__)
 
 
 class ConversationCreateRequest(BaseModel):
@@ -166,6 +169,27 @@ class RetrievedChunk(BaseModel):
 class UsagePeriods:
     daily_start: date
     monthly_start: date
+
+
+@dataclass(slots=True)
+class MessageTiming:
+    started_at: float
+    previous_at: float
+
+    @classmethod
+    def start(cls) -> MessageTiming:
+        current = time.perf_counter()
+        return cls(started_at=current, previous_at=current)
+
+    def mark(self, stage: str) -> None:
+        current = time.perf_counter()
+        logger.info(
+            "conversation_message_stage stage=%s duration_ms=%.2f total_ms=%.2f",
+            stage,
+            (current - self.previous_at) * 1000,
+            (current - self.started_at) * 1000,
+        )
+        self.previous_at = current
 
 
 def vector_literal(vector: list[float]) -> str:
@@ -378,9 +402,11 @@ async def submit_question(
     request: MessageCreateRequest,
     settings: Settings,
 ) -> MessageCreateResponse | None:
+    timing = MessageTiming.start()
     conversation = await _get_conversation(
         session, user_id=user_id, conversation_id=conversation_id
     )
+    timing.mark("conversation_load")
     if conversation is None:
         return None
     question = normalize_question_text(request.question)
@@ -390,6 +416,7 @@ async def submit_question(
         question=question,
         settings=settings,
     )
+    timing.mark("workspace_state")
     if workspace_state_answer is not None:
         answer, usage = workspace_state_answer
         await _insert_successful_user_message(
@@ -428,20 +455,17 @@ async def submit_question(
     selected_document_ids = await _validate_document_filter(
         session, user_id=user_id, document_ids=request.document_ids
     )
+    timing.mark("document_scope_validate")
     await _replace_conversation_document_scope(
         session,
         user_id=user_id,
         conversation_id=conversation_id,
         document_ids=selected_document_ids,
     )
-    embedding_provider = build_embedding_provider(settings)
-    query_embedding = (await embedding_provider.embed([question]))[0]
+    timing.mark("document_scope_persist")
     explicit_memory_save = matches_explicit_memory_save_intent(question)
     memory_question = is_memory_aware_question(question)
     accepted_user_message_id: UUID | None = None
-    memories = await retrieve_memories(
-        session, user_id=user_id, query_embedding=query_embedding, settings=settings
-    )
     if explicit_memory_save:
         accepted_user_message_id = await _insert_successful_user_message(
             session,
@@ -485,14 +509,39 @@ async def submit_question(
                 memory_references=[],
                 source_mode="memory_suggestion_created",
             )
-    if memory_question:
-        memory_context = await retrieve_memories_for_question(
-            session,
-            user_id=user_id,
-            question=question,
-            query_embedding=query_embedding,
-            settings=settings,
+    broad_summary_question = is_broad_summary_question(question)
+    has_memory_candidates = await _has_approved_memories(session, user_id=user_id)
+    timing.mark("memory_candidate_check")
+    needs_document_embedding = bool(selected_document_ids) and not broad_summary_question
+    needs_memory_embedding = has_memory_candidates
+    query_embedding: list[float] | None = None
+    if needs_document_embedding or needs_memory_embedding:
+        embedding_provider = build_embedding_provider(settings)
+        query_embedding = (await embedding_provider.embed([question]))[0]
+        timing.mark("embedding_generation")
+    else:
+        timing.mark("embedding_skipped")
+    memories: list[RetrievedMemory] = []
+    if has_memory_candidates and query_embedding is not None and not memory_question:
+        memories = await retrieve_memories(
+            session, user_id=user_id, query_embedding=query_embedding, settings=settings
         )
+        timing.mark("memory_retrieval")
+    elif not has_memory_candidates:
+        timing.mark("memory_retrieval_skipped")
+    if memory_question:
+        if query_embedding is None:
+            memory_context = []
+            timing.mark("memory_question_retrieval_skipped")
+        else:
+            memory_context = await retrieve_memories_for_question(
+                session,
+                user_id=user_id,
+                question=question,
+                query_embedding=query_embedding,
+                settings=settings,
+            )
+            timing.mark("memory_question_retrieval")
         if memory_context:
             await _insert_successful_user_message(
                 session,
@@ -534,14 +583,18 @@ async def submit_question(
             )
     if not selected_document_ids:
         chunks: list[RetrievedChunk] = []
-    elif is_broad_summary_question(question):
+        timing.mark("document_retrieval_skipped")
+    elif broad_summary_question:
         chunks = await retrieve_selected_document_summary_chunks(
             session,
             user_id=user_id,
             settings=settings,
             document_ids=selected_document_ids,
         )
+        timing.mark("document_summary_retrieval")
     else:
+        if query_embedding is None:
+            raise RuntimeError("query embedding required for document retrieval")
         chunks = await retrieve_chunks(
             session,
             user_id=user_id,
@@ -549,6 +602,7 @@ async def submit_question(
             settings=settings,
             document_ids=selected_document_ids,
         )
+        timing.mark("document_retrieval")
     if not chunks:
         if accepted_user_message_id is None:
             accepted_user_message_id = await _insert_successful_user_message(
@@ -584,9 +638,12 @@ async def submit_question(
             )
         if memories and not memory_question:
             chat_provider = build_chat_provider(settings)
+            chat_request = _build_chat_request(question, [], settings, memories=memories)
+            timing.mark("prompt_construction")
             chat_result = await chat_provider.generate(
-                _build_chat_request(question, [], settings, memories=memories)
+                chat_request
             )
+            timing.mark("gemini_generation")
             answer = _safe_provider_answer(chat_result.content, has_document_evidence=False)
             usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
             assistant_id = await _insert_message(
@@ -620,7 +677,10 @@ async def submit_question(
                 source_mode="memory",
             )
         chat_provider = build_chat_provider(settings)
-        chat_result = await chat_provider.generate(_build_general_chat_request(question))
+        chat_request = _build_general_chat_request(question)
+        timing.mark("prompt_construction")
+        chat_result = await chat_provider.generate(chat_request)
+        timing.mark("gemini_generation")
         answer = _safe_provider_answer(chat_result.content, has_document_evidence=False)
         usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
         assistant_id = await _insert_message(
@@ -648,9 +708,10 @@ async def submit_question(
             source_mode="general",
         )
     chat_provider = build_chat_provider(settings)
-    chat_result = await chat_provider.generate(
-        _build_chat_request(question, chunks, settings, memories=memories)
-    )
+    chat_request = _build_chat_request(question, chunks, settings, memories=memories)
+    timing.mark("prompt_construction")
+    chat_result = await chat_provider.generate(chat_request)
+    timing.mark("gemini_generation")
     answer = _safe_provider_answer(chat_result.content, has_document_evidence=bool(chunks))
     if answer == FALLBACK_ANSWER:
         chunks = []
@@ -691,6 +752,7 @@ async def submit_question(
     )
     source_mode = _source_mode(citations=citations, memory_references=memory_references)
     await _touch_conversation(session, user_id=user_id, conversation_id=conversation_id)
+    timing.mark("persistence")
     return MessageCreateResponse(
         message=MessageResponse(
             id=assistant_id,
@@ -1387,6 +1449,26 @@ async def _usage_counts(session: AsyncSession, *, user_id: UUID) -> dict[str, in
     for row in result.mappings():
         counts[str(row["period_type"])] = int(row["message_count"])
     return counts
+
+
+async def _has_approved_memories(session: AsyncSession, *, user_id: UUID) -> bool:
+    result = await session.execute(
+        text(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM memories
+              WHERE user_id = :user_id
+                AND status = 'approved'
+                AND disabled_at IS NULL
+                AND deleted_at IS NULL
+              LIMIT 1
+            )
+            """
+        ),
+        {"user_id": str(user_id)},
+    )
+    return bool(result.scalar_one())
 
 
 async def _increment_usage_or_raise(
