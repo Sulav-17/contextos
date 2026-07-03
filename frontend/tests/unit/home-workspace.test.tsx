@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PROMPT_STORAGE_KEY } from "@/components/public/public-landing";
 import { quickStartConversationAction } from "@/features/conversations/actions";
 import { HomeWorkspace } from "@/features/home/home-workspace";
-import type { DashboardData, DocumentMetadata } from "@/lib/api/types";
+import type { DashboardData, DashboardDocument } from "@/lib/api/types";
 
 vi.mock("@/features/conversations/actions", () => ({
   createConversationAction: vi.fn(),
@@ -15,20 +15,12 @@ vi.mock("@/features/memories/actions", () => ({
   rejectMemoryAction: vi.fn(),
 }));
 
-const document: DocumentMetadata = {
+const document: DashboardDocument = {
   id: "50000000-0000-4000-8000-000000000001",
   original_filename: "lease.pdf",
-  mime_type: "application/pdf",
-  size_bytes: 2048,
-  checksum_sha256: null,
   status: "ready",
-  page_count: 3,
-  extracted_character_count: 700,
-  failure_code: null,
-  failure_reason: null,
   created_at: "2026-07-01T12:00:00Z",
   updated_at: "2026-07-01T12:00:00Z",
-  processed_at: "2026-07-01T12:01:00Z",
 };
 
 const dashboard: DashboardData = {
@@ -39,7 +31,7 @@ const dashboard: DashboardData = {
     pending_suggestions: 1,
   },
   usage: {
-    daily: { used: 2, limit: 20, remaining: 18 },
+    daily: { used: 2, limit: 30, remaining: 28 },
     monthly: { used: 14, limit: 200, remaining: 186 },
   },
   recent_conversations: [
@@ -106,7 +98,7 @@ describe("HomeWorkspace", () => {
     expect(screen.getByLabelText("lease.pdf")).toHaveAttribute("name", "document_ids");
     expect(screen.getAllByText("Lease review").length).toBeGreaterThan(0);
     expect(screen.getByText("Daily usage remaining")).toBeInTheDocument();
-    expect(screen.getByText("18 left of 20")).toBeInTheDocument();
+    expect(screen.getByText("28 left of 30")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /upload pdf/i })).toHaveAttribute("href", "/libraries");
     expect(screen.getByText("Remember the lease renewal schedule.")).toBeInTheDocument();
   });

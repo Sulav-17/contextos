@@ -87,4 +87,14 @@ describe("SimulationBackdrop", () => {
       expect.anything(),
     );
   });
+
+  it("throttles resize work to one animation frame", () => {
+    render(<SimulationBackdrop />);
+    vi.mocked(window.requestAnimationFrame).mockClear();
+
+    window.dispatchEvent(new Event("resize"));
+    window.dispatchEvent(new Event("resize"));
+
+    expect(window.requestAnimationFrame).toHaveBeenCalledTimes(1);
+  });
 });

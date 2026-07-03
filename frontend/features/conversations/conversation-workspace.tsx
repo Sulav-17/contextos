@@ -170,9 +170,11 @@ export function ConversationWorkspace({
   const [historyFilter, setHistoryFilter] = useState<"active" | "archived">("active");
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
+  const activeConversationId = activeConversation?.id ?? "";
   const historyRef = useRef<HTMLDivElement | null>(null);
   const isNearBottomRef = useRef(true);
   const submittingRef = useRef(false);
+  const restoredConversationIdRef = useRef(activeConversationId);
   const [submittedMessageCount, setSubmittedMessageCount] = useState<number | null>(null);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>(
     activeConversation?.selected_document_ids ?? [],
@@ -195,7 +197,6 @@ export function ConversationWorkspace({
     },
     [archivedConversations, conversations, historyFilter, query],
   );
-  const activeConversationId = activeConversation?.id ?? "";
   const helperText =
     selectedDocumentIds.length > 0
       ? "Answers will be grounded in the selected PDFs."
@@ -207,21 +208,27 @@ export function ConversationWorkspace({
   const isOffline = networkState === "offline";
 
   useEffect(() => {
+    const conversationChanged = restoredConversationIdRef.current !== activeConversationId;
+    restoredConversationIdRef.current = activeConversationId;
     if (!activeConversationId) {
-      window.setTimeout(() => {
-        setQuestion("");
+      queueMicrotask(() => {
+        if (conversationChanged) {
+          setQuestion("");
+        }
         setSelectedDocumentIds([]);
-      }, 0);
+      });
       return;
     }
     const draft = window.sessionStorage.getItem(`${DRAFT_STORAGE_PREFIX}${activeConversationId}`);
     const restoredSelection = (activeConversation?.selected_document_ids ?? []).filter((id) =>
       readyDocumentIds.has(id),
     );
-    window.setTimeout(() => {
-      setQuestion(draft ?? "");
+    queueMicrotask(() => {
+      if (draft !== null || conversationChanged) {
+        setQuestion(draft ?? "");
+      }
       setSelectedDocumentIds(restoredSelection);
-    }, 0);
+    });
   }, [activeConversationId, readyDocumentIds, selectedScopeKey, activeConversation]);
 
   useEffect(() => {
@@ -254,11 +261,11 @@ export function ConversationWorkspace({
     if ((!receivedAcceptedResponse && state.status !== "success") || !activeConversationId) {
       return;
     }
-    window.setTimeout(() => {
-      window.sessionStorage.removeItem(`${DRAFT_STORAGE_PREFIX}${activeConversationId}`);
+    window.sessionStorage.removeItem(`${DRAFT_STORAGE_PREFIX}${activeConversationId}`);
+    queueMicrotask(() => {
       setQuestion("");
       setSubmittedMessageCount(null);
-    }, 0);
+    });
   }, [activeConversation, activeConversationId, state.status, submittedMessageCount]);
 
   useEffect(() => {

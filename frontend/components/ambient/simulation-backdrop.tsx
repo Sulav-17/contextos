@@ -31,12 +31,12 @@ type Palette = {
   trail: string;
 };
 
-const DESKTOP_MIN_PARTICLES = 70;
-const DESKTOP_MAX_PARTICLES = 140;
-const MOBILE_MIN_PARTICLES = 25;
-const MOBILE_MAX_PARTICLES = 60;
-const MAX_CONNECTIONS_DESKTOP = 170;
-const MAX_CONNECTIONS_MOBILE = 36;
+const DESKTOP_MIN_PARTICLES = 48;
+const DESKTOP_MAX_PARTICLES = 96;
+const MOBILE_MIN_PARTICLES = 18;
+const MOBILE_MAX_PARTICLES = 42;
+const MAX_CONNECTIONS_DESKTOP = 96;
+const MAX_CONNECTIONS_MOBILE = 24;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -73,9 +73,9 @@ function getPalette(): Palette {
 function particleTarget(width: number, height: number, coarsePointer: boolean): number {
   const area = width * height;
   if (coarsePointer || width < 760) {
-    return clamp(Math.round(area / 15000), MOBILE_MIN_PARTICLES, MOBILE_MAX_PARTICLES);
+    return clamp(Math.round(area / 22000), MOBILE_MIN_PARTICLES, MOBILE_MAX_PARTICLES);
   }
-  return clamp(Math.round(area / 10500), DESKTOP_MIN_PARTICLES, DESKTOP_MAX_PARTICLES);
+  return clamp(Math.round(area / 18000), DESKTOP_MIN_PARTICLES, DESKTOP_MAX_PARTICLES);
 }
 
 function createParticle(width: number, height: number, edge = false): Particle {
@@ -166,6 +166,7 @@ export function SimulationBackdrop() {
     let height = window.innerHeight;
     let dpr = setCanvasSize(canvas, width, height);
     let animationFrame: number | null = null;
+    let resizeFrame: number | null = null;
     let running = false;
 
     function seedParticles() {
@@ -317,7 +318,8 @@ export function SimulationBackdrop() {
       particles.forEach((particle) => drawParticle(particle, palette));
     }
 
-    function onResize() {
+    function resizeCanvas() {
+      resizeFrame = null;
       width = window.innerWidth;
       height = window.innerHeight;
       dpr = setCanvasSize(canvas, width, height);
@@ -325,6 +327,13 @@ export function SimulationBackdrop() {
       if (reducedMotionQuery.matches) {
         drawStaticSnapshot();
       }
+    }
+
+    function onResize() {
+      if (resizeFrame !== null) {
+        return;
+      }
+      resizeFrame = window.requestAnimationFrame(resizeCanvas);
     }
 
     function onVisibilityChange() {
@@ -382,6 +391,9 @@ export function SimulationBackdrop() {
 
     return () => {
       stop();
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       reducedMotionQuery.removeEventListener("change", onMotionPreferenceChange);

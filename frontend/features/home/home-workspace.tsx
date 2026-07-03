@@ -8,7 +8,7 @@ import { AssistantOrb } from "@/components/assistant/assistant-orb";
 import { PROMPT_STORAGE_KEY } from "@/components/public/public-landing";
 import { quickStartConversationAction, createConversationAction } from "@/features/conversations/actions";
 import { approveMemoryAction, rejectMemoryAction } from "@/features/memories/actions";
-import type { DashboardData, DocumentMetadata } from "@/lib/api/types";
+import type { DashboardData, DashboardDocument } from "@/lib/api/types";
 import { networkUnavailableMessage, useNetworkState } from "@/lib/pwa/network";
 
 const idleChatState = { status: "idle" as const, message: "" };
@@ -23,7 +23,7 @@ export function HomeWorkspace({
   greeting,
 }: {
   dashboard: DashboardData;
-  documents: DocumentMetadata[];
+  documents: DashboardDocument[];
   greeting: string;
 }) {
   const [state, action, pending] = useActionState(quickStartConversationAction, idleChatState);

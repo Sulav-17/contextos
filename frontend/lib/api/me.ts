@@ -1,15 +1,17 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { apiFetch } from "@/lib/api/client";
 import type { GreetingMode, Me, MotionMode, Preferences, ThemeMode } from "@/lib/api/types";
 
-export function getMe(): Promise<Me> {
+export const getMe = cache(function getMe(): Promise<Me> {
   return apiFetch<Me>("/api/v1/me");
-}
+});
 
-export function getPreferences(): Promise<Preferences> {
+export const getPreferences = cache(function getPreferences(): Promise<Preferences> {
   return apiFetch<Preferences>("/api/v1/me/preferences");
-}
+});
 
 export function savePreferences(payload: {
   greeting_mode?: GreetingMode;

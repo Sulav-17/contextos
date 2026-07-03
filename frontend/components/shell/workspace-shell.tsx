@@ -17,8 +17,13 @@ export function WorkspaceShell({
   user: Me;
   preferences: Preferences;
 }) {
+  const shellClassName =
+    preferences.motion_mode === "reduced"
+      ? "motion-reduced h-dvh overflow-hidden"
+      : "h-dvh overflow-hidden";
+
   return (
-    <div className={preferences.motion_mode === "reduced" ? "motion-reduced" : ""}>
+    <div className={shellClassName}>
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
@@ -46,7 +51,7 @@ export function WorkspaceShell({
           <main
             id="main-content"
             tabIndex={-1}
-            className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 md:px-8"
+            className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 md:px-8"
           >
             {children}
           </main>
