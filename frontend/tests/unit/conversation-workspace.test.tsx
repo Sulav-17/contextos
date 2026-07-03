@@ -369,6 +369,29 @@ describe("ConversationWorkspace", () => {
     );
   });
 
+  it("shows the submitted user message and assistant pending state immediately", async () => {
+    render(
+      <ConversationWorkspace
+        activeConversation={conversation({ messages: [] })}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Question"), {
+      target: { value: "What changed?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    const history = screen.getByTestId("conversation-history");
+    expect(within(history).getByText("What changed?")).toBeInTheDocument();
+    expect(within(history).getByText("Assistant pending")).toBeInTheDocument();
+    expect(within(history).getByText("Working on it...")).toBeInTheDocument();
+    await waitFor(() => expect(submitQuestionAction).toHaveBeenCalledTimes(1));
+  });
+
   it("guards against duplicate submit clicks while pending", async () => {
     render(
       <ConversationWorkspace

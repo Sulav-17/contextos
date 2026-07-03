@@ -75,7 +75,9 @@ html {
 
 html:has([data-app-shell="workspace"]) {
   height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 html:has([data-app-shell="public"]),
@@ -102,12 +104,16 @@ body {
 
 body:has([data-app-shell="workspace"]) {
   height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
   min-height: 100dvh;
+  overscroll-behavior: none;
 }
 
-body:has([data-app-shell="workspace"]) {
-  overscroll-behavior-y: none;
+body:has([data-app-shell="workspace"]) > [data-workspace-root="true"] {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
 }
 
 body:has([data-app-shell="public"]),

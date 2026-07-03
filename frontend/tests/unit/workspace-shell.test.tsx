@@ -23,8 +23,8 @@ vi.mock("@/components/pwa/offline-status", () => ({
 }));
 
 describe("WorkspaceShell", () => {
-  it("keeps authenticated routes viewport constrained", () => {
-    const { container, getByText } = render(
+  function renderShell(children = <div>Workspace content</div>) {
+    return render(
       <WorkspaceShell
         preferences={{
           greeting_mode: "full",
@@ -42,17 +42,52 @@ describe("WorkspaceShell", () => {
           memory_enabled: true,
         }}
       >
-        <div>Workspace content</div>
+        {children}
       </WorkspaceShell>,
     );
+  }
+
+  it("keeps authenticated routes viewport constrained", () => {
+    const { container, getByText } = renderShell();
 
     expect(container.querySelector('[data-app-shell="workspace"]')).toBeTruthy();
-    expect(container.firstElementChild).toHaveClass("h-dvh", "overflow-hidden");
-    expect(container.querySelector(".flex.h-dvh.overflow-hidden")).toBeTruthy();
+    expect(container.firstElementChild).toHaveClass("h-dvh", "max-h-dvh", "overflow-hidden");
+    expect(container.querySelector(".flex.h-full.min-h-0.overflow-hidden")).toBeTruthy();
     expect(container.querySelector("main")).toHaveClass("overflow-y-auto", "overscroll-contain");
     expect(container.querySelectorAll("header .hidden.md\\:inline-flex")).toHaveLength(3);
     expect(getByText("Theme control").parentElement).toHaveClass("hidden", "md:inline-flex");
     expect(getByText("Log out").parentElement).toHaveClass("hidden", "md:inline-flex");
     expect(getByText("Workspace content")).toBeInTheDocument();
+  });
+
+  it("keeps document height at the viewport while main content owns long scrolling", () => {
+    const { getByTestId } = renderShell(<div style={{ height: "1600px" }}>Long content</div>);
+    const main = getByTestId("workspace-main-scroll");
+
+    Object.defineProperty(document.documentElement, "clientHeight", {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(document.documentElement, "scrollHeight", {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(document.body, "scrollHeight", {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(main, "clientHeight", {
+      configurable: true,
+      value: 640,
+    });
+    Object.defineProperty(main, "scrollHeight", {
+      configurable: true,
+      value: 1600,
+    });
+
+    expect(document.documentElement.scrollHeight).toBe(document.documentElement.clientHeight);
+    expect(document.body.scrollHeight).toBe(document.documentElement.clientHeight);
+    expect(main.scrollHeight).toBeGreaterThan(main.clientHeight);
+    expect(main).toHaveClass("min-h-0", "overflow-y-auto");
   });
 });

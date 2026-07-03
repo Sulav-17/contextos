@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
-import { SimulationBackdrop } from "@/components/ambient/simulation-backdrop";
+import { SimulationBackdropLoader } from "@/components/ambient/simulation-backdrop-loader";
 import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 
@@ -55,7 +55,7 @@ try {
         />
         <ThemeProvider>
           <ServiceWorkerRegistration />
-          <SimulationBackdrop />
+          <SimulationBackdropLoader />
           {children}
         </ThemeProvider>
       </body>

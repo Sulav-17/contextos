@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -37,6 +38,11 @@ import { networkUnavailableMessage, useNetworkState } from "@/lib/pwa/network";
 
 const idleChatState = { status: "idle" as const, message: "" };
 const DRAFT_STORAGE_PREFIX = "contextos.conversationDraft.";
+
+type OptimisticExchange = {
+  id: string;
+  question: string;
+};
 
 function formatUsage(bucket: { used: number; limit: number }): string {
   return `${bucket.used}/${bucket.limit}`;
@@ -170,6 +176,7 @@ export function ConversationWorkspace({
   const [historyFilter, setHistoryFilter] = useState<"active" | "archived">("active");
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
+  const [optimisticExchange, setOptimisticExchange] = useState<OptimisticExchange | null>(null);
   const activeConversationId = activeConversation?.id ?? "";
   const historyRef = useRef<HTMLDivElement | null>(null);
   const isNearBottomRef = useRef(true);
@@ -204,6 +211,36 @@ export function ConversationWorkspace({
   const latestAssistantMessage = [...(activeConversation?.messages ?? [])]
     .reverse()
     .find((message) => message.role === "assistant");
+  const displayedMessages = useMemo(() => {
+    const messages = activeConversation?.messages ?? [];
+    if (!optimisticExchange || !pending) {
+      return messages;
+    }
+    const now = new Date().toISOString();
+    return [
+      ...messages,
+      {
+        id: `optimistic-user-${optimisticExchange.id}`,
+        role: "user" as const,
+        content: optimisticExchange.question,
+        status: "accepted",
+        created_at: now,
+        memory_references: [],
+        source_mode: "general" as const,
+        citations: [],
+      },
+      {
+        id: `optimistic-assistant-${optimisticExchange.id}`,
+        role: "assistant" as const,
+        content: "Working on it...",
+        status: "pending",
+        created_at: now,
+        memory_references: [],
+        source_mode: "general" as const,
+        citations: [],
+      },
+    ];
+  }, [activeConversation?.messages, optimisticExchange, pending]);
   const networkState = useNetworkState();
   const isOffline = networkState === "offline";
 
@@ -241,6 +278,7 @@ export function ConversationWorkspace({
   useEffect(() => {
     if (!pending) {
       submittingRef.current = false;
+      queueMicrotask(() => setOptimisticExchange(null));
     }
   }, [pending]);
 
@@ -274,7 +312,7 @@ export function ConversationWorkspace({
       return;
     }
     history.scrollTop = history.scrollHeight;
-  }, [activeConversation?.messages.length, pending]);
+  }, [displayedMessages.length, pending]);
 
   function updateNearBottom() {
     const history = historyRef.current;
@@ -341,7 +379,7 @@ export function ConversationWorkspace({
           </p>
         ) : (
           filteredConversations.map((conversation) => (
-            <a
+            <Link
               aria-label={conversation.title}
               className={`line-clamp-2 block rounded-lg border px-3 py-2 text-sm leading-5 ${
                 activeConversation?.id === conversation.id
@@ -354,7 +392,7 @@ export function ConversationWorkspace({
               title={conversation.title}
             >
               {conversation.title}
-            </a>
+            </Link>
           ))
         )}
       </div>
@@ -674,12 +712,12 @@ export function ConversationWorkspace({
               onScroll={updateNearBottom}
               ref={historyRef}
             >
-              {activeConversation.messages.length === 0 ? (
+              {displayedMessages.length === 0 ? (
                 <p className="text-sm text-[var(--text-muted)]">
                   Ask anything, use saved memory, or select PDFs for cited answers.
                 </p>
               ) : (
-                activeConversation.messages.map((message) => (
+                displayedMessages.map((message) => (
                   <article
                     className={`message-bubble message-enter rounded-lg border border-[var(--border-subtle)] p-3 ${
                       message.role === "assistant"
@@ -693,15 +731,21 @@ export function ConversationWorkspace({
                     </p>
                     {message.role === "assistant" ? (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-full border px-2 py-1 text-xs font-semibold ${
-                            message.source_mode === "memory_suggestion_created"
-                              ? "border-[var(--status-warning)] text-[var(--status-warning)]"
-                              : "border-[var(--border-subtle)] text-[var(--text-muted)]"
-                          }`}
-                        >
-                          {sourceBadge(message)}
-                        </span>
+                        {message.status === "pending" ? (
+                          <span className="rounded-full border border-[var(--accent-intelligence)] px-2 py-1 text-xs font-semibold text-[var(--accent-intelligence)]">
+                            Assistant pending
+                          </span>
+                        ) : (
+                          <span
+                            className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                              message.source_mode === "memory_suggestion_created"
+                                ? "border-[var(--status-warning)] text-[var(--status-warning)]"
+                                : "border-[var(--border-subtle)] text-[var(--text-muted)]"
+                            }`}
+                          >
+                            {sourceBadge(message)}
+                          </span>
+                        )}
                         {message.source_mode === "memory_suggestion_created" ? (
                           <a
                             className="rounded-full border border-[var(--border-subtle)] px-2 py-1 text-xs font-semibold underline"
@@ -756,13 +800,13 @@ export function ConversationWorkspace({
                               {memory.content}
                             </p>
                             {memory.source_conversation_id ? (
-                              <a
+                              <Link
                                 className="mt-2 inline-flex items-center gap-1 text-xs underline"
                                 href={`/conversations?conversation=${memory.source_conversation_id}`}
                               >
                                 <ChevronRight aria-hidden="true" size={13} />
                                 {memory.source_conversation_title ?? "Source conversation"}
-                              </a>
+                              </Link>
                             ) : null}
                           </details>
                         ))}
@@ -785,6 +829,10 @@ export function ConversationWorkspace({
                   return;
                 }
                 submittingRef.current = true;
+                setOptimisticExchange({
+                  id: `${Date.now()}`,
+                  question: question.trim(),
+                });
                 setSubmittedMessageCount(activeConversation.messages.length);
               }}
             >
@@ -916,10 +964,10 @@ function ContextInspector({ message }: { message: ConversationMessage }) {
         <p className="text-[var(--text-secondary)]">
           Memory suggestion created. Review it before it can influence answers.
         </p>
-        <a className="inline-flex items-center gap-1 underline" href="/memories">
+        <Link className="inline-flex items-center gap-1 underline" href="/memories">
           <ChevronRight aria-hidden="true" size={13} />
           Review action
-        </a>
+        </Link>
       </div>
     );
   }
@@ -972,13 +1020,13 @@ function ContextInspector({ message }: { message: ConversationMessage }) {
                 <p className="font-medium">{memory.memory_type}</p>
                 <p className="mt-1 text-[var(--text-secondary)]">{memory.content}</p>
                 {memory.source_conversation_id ? (
-                  <a
+                  <Link
                     className="mt-2 inline-flex items-center gap-1 text-xs underline"
                     href={`/conversations?conversation=${memory.source_conversation_id}`}
                   >
                     <ChevronRight aria-hidden="true" size={13} />
                     {memory.source_conversation_title ?? "Source conversation"}
-                  </a>
+                  </Link>
                 ) : null}
               </div>
             ))}

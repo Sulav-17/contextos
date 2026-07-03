@@ -19,17 +19,17 @@ export function WorkspaceShell({
 }) {
   const shellClassName =
     preferences.motion_mode === "reduced"
-      ? "motion-reduced h-dvh overflow-hidden"
-      : "h-dvh overflow-hidden";
+      ? "motion-reduced h-dvh max-h-dvh min-h-0 overflow-hidden"
+      : "h-dvh max-h-dvh min-h-0 overflow-hidden";
 
   return (
-    <div className={shellClassName}>
+    <div className={shellClassName} data-testid="workspace-root" data-workspace-root="true">
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
-      <div className="flex h-dvh overflow-hidden" data-app-shell="workspace">
+      <div className="flex h-full min-h-0 overflow-hidden" data-app-shell="workspace">
         <WorkspaceNav isAdmin={user.role === "admin"} />
-        <div className="flex min-w-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+5.75rem)] md:pb-0">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+5.75rem)] md:pb-0">
           <OfflineStatus />
           <header className="flex min-h-16 min-w-0 items-center justify-between gap-2 overflow-x-hidden border-b border-[var(--border-subtle)] px-3 py-2 md:px-8 md:py-4">
             <AssistantOrb
@@ -50,6 +50,7 @@ export function WorkspaceShell({
           </header>
           <main
             id="main-content"
+            data-testid="workspace-main-scroll"
             tabIndex={-1}
             className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 md:px-8"
           >
