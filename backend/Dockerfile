@@ -20,6 +20,9 @@ COPY alembic ./alembic
 
 RUN uv sync --frozen --no-dev --no-install-project
 
+ARG CONTEXTOS_BUILD_REVISION=20260703-dns-fix
+RUN echo "$CONTEXTOS_BUILD_REVISION" > /app/.build-revision
+
 COPY src ./src
 
 RUN uv sync --frozen --no-dev
