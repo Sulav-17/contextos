@@ -81,8 +81,8 @@ def test_production_settings_require_safe_external_services(
 ) -> None:
     settings = make_settings(
         environment="production",
-        database_url="postgresql+asyncpg://app:secret@db.example.com/contextos",
-        migration_database_url="postgresql+asyncpg://migration:secret@db.example.com/contextos",
+        database_url="postgresql+asyncpg://app:secret@aws-1-ca-central-1.pooler.supabase.com/contextos",
+        migration_database_url="postgresql+asyncpg://migration:secret@aws-1-ca-central-1.pooler.supabase.com/contextos",
         redis_url="redis://cache.example.com:6379/0",
         supabase_url="https://project.supabase.co",
         supabase_jwt_issuer="https://project.supabase.co/auth/v1",
@@ -101,9 +101,43 @@ def test_production_settings_require_safe_external_services(
 
 
 @pytest.mark.parametrize(
+    "database_host",
+    [
+        "aws-1-ca-central-1.pooler.supabase.com",
+        "db.project-ref.supabase.co",
+    ],
+)
+def test_production_settings_accept_public_dns_database_hosts(
+    make_settings: Callable[..., Settings],
+    database_host: str,
+) -> None:
+    settings = make_settings(
+        environment="production",
+        database_url=f"postgresql+asyncpg://app:secret@{database_host}/contextos",
+        migration_database_url=f"postgresql+asyncpg://migration:secret@{database_host}/contextos",
+        redis_url="redis://cache.example.com:6379/0",
+        supabase_url="https://project.supabase.co",
+        supabase_jwt_issuer="https://project.supabase.co/auth/v1",
+        supabase_jwks_url="https://project.supabase.co/auth/v1/.well-known/jwks.json",
+        supabase_secret_key="server-secret",
+        frontend_url="https://contextos.example.com",
+        document_storage_backend="supabase",
+        supabase_storage_bucket="contextos-private-documents",
+        llm_provider="gemini",
+        embedding_provider="gemini",
+        ai_provider_api_key="provider-secret",
+    )
+
+    assert settings.database_url.get_secret_value().endswith(f"@{database_host}/contextos")
+
+
+@pytest.mark.parametrize(
     ("overrides", "message"),
     [
+        ({"database_url": "postgresql+asyncpg://app:secret@localhost/contextos"}, "database"),
         ({"database_url": "postgresql+asyncpg://app:secret@127.0.0.1/contextos"}, "database"),
+        ({"database_url": "postgresql+asyncpg://app:secret@[::1]/contextos"}, "database"),
+        ({"database_url": "postgresql+asyncpg://app:secret@10.0.0.10/contextos"}, "database"),
         ({"redis_url": "redis://localhost:6379/0"}, "redis_url"),
         ({"frontend_url": "http://contextos.example.com"}, "frontend_url"),
         ({"document_storage_backend": "local"}, "document storage"),

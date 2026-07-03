@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -171,12 +172,33 @@ class Settings(BaseSettings):
         local_hosts = {"", "localhost", "127.0.0.1", "::1", "postgres"}
         if parsed.hostname in local_hosts or parsed.path.endswith("_test"):
             raise ValueError(f"production {field_name} cannot point at local or test database")
+        if Settings._hostname_is_unsafe_literal_ip(parsed.hostname):
+            raise ValueError(f"production {field_name} cannot point at local or test database")
 
     @staticmethod
     def _validate_not_local_redis_url(value: str) -> None:
         parsed = urlparse(value)
         if parsed.hostname in {"", "localhost", "127.0.0.1", "::1", "redis"}:
             raise ValueError("production redis_url cannot point at local Redis")
+        if Settings._hostname_is_unsafe_literal_ip(parsed.hostname):
+            raise ValueError("production redis_url cannot point at local Redis")
+
+    @staticmethod
+    def _hostname_is_unsafe_literal_ip(hostname: str | None) -> bool:
+        if hostname is None:
+            return False
+        try:
+            address = ip_address(hostname)
+        except ValueError:
+            return False
+        return (
+            address.is_loopback
+            or address.is_private
+            or address.is_link_local
+            or address.is_reserved
+            or address.is_unspecified
+            or address.is_multicast
+        )
 
 
 @lru_cache(maxsize=1)
