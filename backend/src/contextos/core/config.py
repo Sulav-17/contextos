@@ -187,8 +187,13 @@ class Settings(BaseSettings):
     def _hostname_is_unsafe_literal_ip(hostname: str | None) -> bool:
         if hostname is None:
             return False
+        candidate = hostname.strip()
+        if candidate.startswith("[") and candidate.endswith("]"):
+            candidate = candidate[1:-1]
+        if not Settings._hostname_looks_like_ip_literal(candidate):
+            return False
         try:
-            address = ip_address(hostname)
+            address = ip_address(candidate)
         except ValueError:
             return False
         return (
@@ -199,6 +204,13 @@ class Settings(BaseSettings):
             or address.is_unspecified
             or address.is_multicast
         )
+
+    @staticmethod
+    def _hostname_looks_like_ip_literal(hostname: str) -> bool:
+        if ":" in hostname:
+            return True
+        parts = hostname.split(".")
+        return len(parts) == 4 and all(part.isdecimal() for part in parts)
 
 
 @lru_cache(maxsize=1)
