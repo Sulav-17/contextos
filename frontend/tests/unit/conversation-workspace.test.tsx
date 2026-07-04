@@ -196,9 +196,50 @@ describe("ConversationWorkspace", () => {
     expect(screen.getByRole("button", { name: /^context$/i })).toHaveClass("whitespace-nowrap");
     expect(screen.getByRole("button", { name: /^new$/i })).toHaveClass("whitespace-nowrap");
     expect(screen.getByRole("button", { name: /context inspector/i })).toHaveClass(
-      "xl:inline-flex",
+      "min-[1700px]:hidden",
     );
-    expect(container.querySelector(".lg\\:hidden")).toBeTruthy();
+    expect(container.querySelector(".md\\:hidden")).toBeTruthy();
+    expect(container.querySelector(".md\\:grid-cols-\\[16rem_minmax\\(0\\,1fr\\)\\]")).toBeTruthy();
+    expect(
+      container.querySelector(".min-\\[1700px\\]\\:grid-cols-\\[18rem_minmax\\(36rem\\,1fr\\)_22rem\\]"),
+    ).toBeTruthy();
+  });
+
+  it.each([
+    [1005, 910],
+    [1280, 800],
+    [1440, 900],
+    [390, 844],
+  ])("keeps the production viewport layout guarded at %d by %d", (width, height) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+
+    const { container } = render(
+      <ConversationWorkspace
+        activeConversation={conversation()}
+        archivedConversations={[]}
+        conversations={[summary]}
+        documents={[document()]}
+        usage={usage}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const chatPanel = container.querySelector("section");
+    const permanentInspector = container.querySelector("aside.min-\\[1700px\\]\\:block");
+    const message = screen.getByText(/Based on your documents/i).closest("article");
+
+    expect(root).toHaveClass("min-w-0", "max-w-full");
+    expect(root).toHaveClass("md:grid-cols-[16rem_minmax(0,1fr)]");
+    expect(root).toHaveClass("min-[1700px]:grid-cols-[18rem_minmax(36rem,1fr)_22rem]");
+    expect(chatPanel).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
+    expect(permanentInspector).toHaveClass("hidden", "min-[1700px]:block");
+    expect(message).toHaveClass("min-w-0", "max-w-full");
+    expect(screen.getByRole("button", { name: /context inspector/i })).toHaveClass(
+      "whitespace-nowrap",
+      "min-[1700px]:hidden",
+    );
+    expect(globalThis.document.querySelector("canvas")).not.toBeInTheDocument();
   });
 
   it("renders weak-evidence and limit state text safely", () => {

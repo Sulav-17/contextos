@@ -341,7 +341,7 @@ export function ConversationWorkspace({
   }
 
   const renderConversationList = () => (
-    <div className="quiet-panel surface-enter flex min-h-0 flex-col rounded-lg p-3">
+    <div className="quiet-panel flex min-h-0 min-w-0 flex-col rounded-lg p-3">
       <div className="flex items-center gap-2">
         <Search aria-hidden="true" size={16} />
         <input
@@ -400,8 +400,8 @@ export function ConversationWorkspace({
   );
 
   return (
-    <div className="grid min-h-0 gap-5 xl:grid-cols-[18rem_minmax(0,1fr)_22rem]">
-      <aside className="hidden min-h-0 space-y-4 lg:flex lg:flex-col">
+    <div className="grid min-h-0 min-w-0 max-w-full gap-5 md:grid-cols-[16rem_minmax(0,1fr)] min-[1700px]:grid-cols-[18rem_minmax(36rem,1fr)_22rem]">
+      <aside className="hidden min-h-0 min-w-0 space-y-4 md:flex md:flex-col">
         <form action={createConversationAction} onSubmit={(event) => blockOffline(event, "Starting a conversation")}>
           <button className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-4 text-sm font-semibold text-[#061019] disabled:opacity-60" disabled={isOffline}>
             <MessageCirclePlus aria-hidden="true" size={18} />
@@ -416,10 +416,10 @@ export function ConversationWorkspace({
         </div>
       </aside>
 
-      <section className="quiet-panel surface-enter flex min-h-0 flex-col overflow-hidden rounded-lg p-3 md:p-5">
+      <section className="quiet-panel flex min-h-0 min-w-0 max-w-full flex-col overflow-hidden rounded-lg p-3 md:p-5">
         {activeConversation ? (
           <>
-            <div className="mb-4 grid gap-3 lg:hidden">
+            <div className="mb-4 grid gap-3 md:hidden">
               <div className="flex min-w-0 items-center justify-between gap-2">
                 {isRenaming ? (
                   <form
@@ -483,7 +483,7 @@ export function ConversationWorkspace({
                   History
                 </button>
                 <button
-                  className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-2 text-sm whitespace-nowrap xl:hidden"
+                  className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-2 text-sm whitespace-nowrap min-[1700px]:hidden"
                   onClick={() => setInspectorOpen(true)}
                   type="button"
                 >
@@ -551,7 +551,7 @@ export function ConversationWorkspace({
               <div
                 aria-label="Conversation history"
                 aria-modal="true"
-                className="fixed inset-0 z-50 bg-black/50 p-4 lg:hidden"
+                className="fixed inset-0 z-50 bg-black/50 p-4 md:hidden"
                 role="dialog"
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
@@ -579,7 +579,7 @@ export function ConversationWorkspace({
               <div
                 aria-label="Context inspector"
                 aria-modal="true"
-                className="fixed inset-0 z-50 bg-black/50 p-4 xl:hidden"
+                className="fixed inset-0 z-50 bg-black/50 p-4 min-[1700px]:hidden"
                 role="dialog"
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
@@ -606,8 +606,8 @@ export function ConversationWorkspace({
           </>
         ) : null}
         {activeConversation ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               {isRenaming ? (
                 <form action={renameAction} className="flex flex-1 flex-col gap-2 sm:flex-row" onSubmit={(event) => blockOffline(event, "Renaming a conversation")}>
                   <input name="conversation_id" type="hidden" value={activeConversation.id} />
@@ -639,7 +639,7 @@ export function ConversationWorkspace({
                 </form>
               ) : (
                 <div className="flex min-w-0 items-center gap-2">
-                  <h2 className="text-xl font-semibold" title={activeConversation.title}>
+                  <h2 className="min-w-0 truncate text-xl font-semibold" title={activeConversation.title}>
                     {activeConversation.title}
                   </h2>
                   <button
@@ -652,7 +652,7 @@ export function ConversationWorkspace({
                   </button>
                 </div>
               )}
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
                 {renameState.message ? (
                   <p
                     className={`text-sm ${
@@ -668,7 +668,7 @@ export function ConversationWorkspace({
                 <form action={deleteConversationAction} onSubmit={(event) => blockOffline(event, "Deleting a conversation")}>
                   <input name="conversation_id" type="hidden" value={activeConversation.id} />
                   <button
-                    className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm text-[var(--status-danger)]"
+                    className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap text-[var(--status-danger)]"
                     onClick={(event) => {
                       if (!window.confirm("Delete this conversation?")) {
                         event.preventDefault();
@@ -682,7 +682,7 @@ export function ConversationWorkspace({
                 {activeConversation.archived_at ? (
                   <form action={unarchiveConversationAction} onSubmit={(event) => blockOffline(event, "Restoring a conversation")}>
                     <input name="conversation_id" type="hidden" value={activeConversation.id} />
-                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm disabled:opacity-60" disabled={isOffline}>
+                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap disabled:opacity-60" disabled={isOffline}>
                       <RotateCcw aria-hidden="true" size={17} />
                       Restore
                     </button>
@@ -690,14 +690,14 @@ export function ConversationWorkspace({
                 ) : (
                   <form action={archiveConversationAction} onSubmit={(event) => blockOffline(event, "Archiving a conversation")}>
                     <input name="conversation_id" type="hidden" value={activeConversation.id} />
-                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm disabled:opacity-60" disabled={isOffline}>
+                    <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap disabled:opacity-60" disabled={isOffline}>
                       <Archive aria-hidden="true" size={17} />
                       Archive
                     </button>
                   </form>
                 )}
                 <button
-                  className="touch-target hidden items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm xl:inline-flex"
+                  className="touch-target inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 text-sm whitespace-nowrap min-[1700px]:hidden"
                   onClick={() => setInspectorOpen(true)}
                   type="button"
                 >
@@ -719,10 +719,10 @@ export function ConversationWorkspace({
               ) : (
                 displayedMessages.map((message) => (
                   <article
-                    className={`message-bubble message-enter rounded-lg border border-[var(--border-subtle)] p-3 ${
+                    className={`message-bubble min-w-0 max-w-full rounded-lg border border-[var(--border-subtle)] p-3 ${
                       message.role === "assistant"
-                        ? "mr-auto max-w-3xl bg-[var(--surface-overlay)] shadow-[0_0_24px_var(--panel-glow)]"
-                        : "ml-auto max-w-2xl bg-[var(--surface-inspector)]"
+                        ? "mr-auto w-fit max-w-full sm:max-w-3xl bg-[var(--surface-overlay)]"
+                        : "ml-auto w-fit max-w-full sm:max-w-2xl bg-[var(--surface-inspector)]"
                     }`}
                     key={message.id}
                   >
@@ -877,10 +877,10 @@ export function ConversationWorkspace({
                 required
                 value={question}
               />
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <AssistantOrb state={pending ? "retrieving document" : "ready"} />
-                  <p
-                  className={`text-sm ${
+                <p
+                  className={`min-w-0 text-sm ${
                     state.status === "error"
                       ? "text-[var(--status-danger)]"
                       : "text-[var(--text-muted)]"
@@ -926,7 +926,7 @@ export function ConversationWorkspace({
           </div>
         )}
       </section>
-      <aside className="hidden min-h-0 xl:block">
+      <aside className="hidden min-h-0 min-w-0 min-[1700px]:block">
         {latestAssistantMessage ? (
           <div className="quiet-panel h-full overflow-y-auto rounded-lg p-4">
             <h2 className="text-sm font-semibold text-[var(--text-secondary)]">

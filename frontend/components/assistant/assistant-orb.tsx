@@ -46,7 +46,6 @@ export function AssistantOrb({ state, reducedMotion = false }: AssistantOrbProps
         <span className="orb-ring orb-ring-outer" />
         <span className="orb-ring orb-ring-inner" />
         <span className="orb-core" />
-        <span className="orb-particle" />
       </div>
       <span className="text-sm font-medium text-[var(--text-secondary)]">
         Assistant status: {state}

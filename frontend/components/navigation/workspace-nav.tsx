@@ -15,7 +15,7 @@ export function WorkspaceNav({ isAdmin }: { isAdmin: boolean }) {
     <>
       <nav
         aria-label="Primary"
-        className="hidden w-64 shrink-0 border-r border-[var(--border-subtle)] px-4 py-6 md:block"
+        className="hidden h-full w-64 shrink-0 overflow-y-auto overflow-x-hidden border-r border-[var(--border-subtle)] px-4 py-6 [scrollbar-gutter:stable] md:block"
       >
         <Link href="/home" className="mb-8 block text-lg font-semibold">
           ContextOS

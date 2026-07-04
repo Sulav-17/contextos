@@ -53,7 +53,12 @@ describe("WorkspaceShell", () => {
     expect(container.querySelector('[data-app-shell="workspace"]')).toBeTruthy();
     expect(container.firstElementChild).toHaveClass("h-dvh", "max-h-dvh", "overflow-hidden");
     expect(container.querySelector(".flex.h-full.min-h-0.overflow-hidden")).toBeTruthy();
-    expect(container.querySelector("main")).toHaveClass("overflow-y-auto", "overscroll-contain");
+    expect(container.querySelector(".grid.min-h-0.min-w-0.flex-1")).toBeTruthy();
+    expect(container.querySelector("main")).toHaveClass(
+      "min-h-0",
+      "overflow-y-auto",
+      "overscroll-contain",
+    );
     expect(container.querySelectorAll("header .hidden.md\\:inline-flex")).toHaveLength(3);
     expect(getByText("Theme control").parentElement).toHaveClass("hidden", "md:inline-flex");
     expect(getByText("Log out").parentElement).toHaveClass("hidden", "md:inline-flex");

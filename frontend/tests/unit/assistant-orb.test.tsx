@@ -34,14 +34,14 @@ describe("AssistantOrb", () => {
     expect(orb).toHaveAttribute("data-reduced-motion", "true");
   });
 
-  it("renders the visible orb rings, core, and circulating energy particle", () => {
+  it("renders the static visible orb rings and core", () => {
     render(<AssistantOrb state="retrieving document" />);
 
     const orb = screen.getByRole("status").querySelector(".assistant-orb");
     expect(orb?.querySelector(".orb-ring-inner")).toBeInTheDocument();
     expect(orb?.querySelector(".orb-ring-outer")).toBeInTheDocument();
     expect(orb?.querySelector(".orb-core")).toBeInTheDocument();
-    expect(orb?.querySelector(".orb-particle")).toBeInTheDocument();
+    expect(orb?.querySelector(".orb-particle")).not.toBeInTheDocument();
     expect(orb).toHaveAttribute("data-state", "thinking");
   });
 });

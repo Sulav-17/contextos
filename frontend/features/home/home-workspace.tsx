@@ -76,8 +76,7 @@ export function HomeWorkspace({
 
   return (
     <div className="space-y-8">
-      <section className="quiet-panel surface-enter relative overflow-hidden rounded-lg p-5 md:p-7">
-        <div className="ambient-orb right-12 top-8 h-24 w-24 bg-[var(--energy-primary)]" />
+      <section className="quiet-panel relative overflow-hidden rounded-lg p-5 md:p-7">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
             <h1 className="text-3xl font-semibold">{greeting}</h1>

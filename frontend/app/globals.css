@@ -124,113 +124,6 @@ body:has([data-app-shell="auth"]) {
   overscroll-behavior-y: auto;
 }
 
-.simulation-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-body > :not(.simulation-backdrop) {
-  position: relative;
-  z-index: 1;
-}
-
-.simulation-grid,
-.simulation-orbit,
-.simulation-core,
-.simulation-scan {
-  position: absolute;
-  pointer-events: none;
-}
-
-.simulation-canvas {
-  position: absolute;
-  inset: 0;
-  height: 100%;
-  opacity: 0.98;
-  width: 100%;
-  pointer-events: none;
-}
-
-.simulation-grid {
-  inset: -8rem;
-  content: "";
-  background:
-    linear-gradient(var(--line-context) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line-context) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(circle at 50% 20%, black, transparent 68%);
-  opacity: 0.42;
-  animation: grid-drift 22s linear infinite;
-}
-
-.simulation-core {
-  inset: 0;
-  background:
-    radial-gradient(circle at 76% 18%, var(--energy-primary), transparent 22rem),
-    radial-gradient(circle at 19% 78%, var(--energy-secondary), transparent 28rem),
-    radial-gradient(circle at 50% 48%, var(--energy-warm), transparent 34rem),
-    conic-gradient(from 110deg at 50% 48%, transparent 0deg, var(--line-context) 38deg, transparent 82deg, var(--line-context) 154deg, transparent 218deg);
-  opacity: 0.38;
-  animation: core-flow 20s ease-in-out infinite;
-}
-
-.simulation-orbit {
-  border: 1px solid color-mix(in srgb, var(--border-strong) 45%, transparent);
-  border-radius: 999px;
-  box-shadow:
-    inset 0 0 36px var(--panel-glow),
-    0 0 46px var(--panel-glow);
-  opacity: 0.38;
-  animation: orbit-drift 18s ease-in-out infinite;
-}
-
-.simulation-orbit::before,
-.simulation-orbit::after {
-  position: absolute;
-  border-radius: 999px;
-  content: "";
-}
-
-.simulation-orbit::before {
-  inset: 14%;
-  border: 1px dashed color-mix(in srgb, var(--line-context) 70%, transparent);
-}
-
-.simulation-orbit::after {
-  left: 50%;
-  top: -3px;
-  height: 6px;
-  width: 6px;
-  background: var(--orb-core);
-  box-shadow: 0 0 16px var(--orb-core);
-}
-
-.simulation-orbit-one {
-  right: 8%;
-  top: 9%;
-  height: 22rem;
-  width: 22rem;
-}
-
-.simulation-orbit-two {
-  bottom: -8rem;
-  left: 9%;
-  height: 28rem;
-  width: 28rem;
-  animation-delay: -6s;
-}
-
-.simulation-scan {
-  inset: 0;
-  background: linear-gradient(115deg, transparent 20%, var(--line-context), transparent 38%);
-  opacity: 0.2;
-  transform: translateX(-30%);
-  animation: scan-flow 14s ease-in-out infinite;
-}
-
 a {
   color: inherit;
 }
@@ -277,29 +170,11 @@ textarea:disabled {
     linear-gradient(135deg, var(--surface-luminous), transparent 38%),
     color-mix(in srgb, var(--surface-raised) 88%, transparent);
   box-shadow: var(--shadow-soft);
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease,
-    background 180ms ease;
 }
 
 .quiet-panel:hover,
 .interactive-glow:hover {
   border-color: color-mix(in srgb, var(--border-strong) 58%, var(--border-subtle));
-  box-shadow: var(--shadow-panel), 0 0 32px var(--panel-glow);
-}
-
-.surface-enter {
-  animation: surface-rise 360ms ease-out both;
-}
-
-.stagger-one {
-  animation-delay: 70ms;
-}
-
-.stagger-two {
-  animation-delay: 140ms;
 }
 
 .active-glow {
@@ -312,11 +187,6 @@ textarea:disabled {
 
 .document-chip {
   background: color-mix(in srgb, var(--surface-overlay) 72%, transparent);
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease,
-    background 180ms ease;
 }
 
 .document-chip:has(input:checked) {
@@ -328,7 +198,6 @@ textarea:disabled {
 }
 
 .document-chip:hover {
-  transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--border-strong) 48%, var(--border-subtle));
 }
 
@@ -350,9 +219,6 @@ textarea:disabled {
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--accent-document) 9%, transparent), transparent),
     color-mix(in srgb, var(--surface-inspector) 84%, transparent);
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease;
 }
 
 .citation-card:hover,
@@ -374,30 +240,12 @@ textarea:disabled {
   border-bottom: 0 solid var(--border-subtle);
   background: color-mix(in srgb, var(--status-warning) 18%, var(--surface-raised));
   color: var(--text-primary);
-  transition:
-    max-height 180ms ease,
-    padding 180ms ease,
-    border-width 180ms ease;
 }
 
 .offline-status-visible {
   max-height: 4rem;
   border-bottom-width: 1px;
   padding: 0.55rem max(0.75rem, env(safe-area-inset-left)) 0.55rem max(0.75rem, env(safe-area-inset-left));
-}
-
-.ambient-orb {
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(8px);
-  opacity: 0.45;
-  pointer-events: none;
-  transform: translateZ(0);
-  animation: ambient-float 12s ease-in-out infinite;
-}
-
-.message-enter {
-  animation: message-rise 260ms ease-out both;
 }
 
 .touch-target {
@@ -409,7 +257,8 @@ textarea:disabled {
 .citation-card,
 .document-chip,
 .quiet-panel {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 @supports (height: 100dvh) {
@@ -428,15 +277,10 @@ textarea:disabled {
     radial-gradient(circle at 34% 28%, var(--orb-core), color-mix(in srgb, var(--orb-core) 36%, transparent) 32%, var(--orb-halo) 62%, color-mix(in srgb, var(--surface-base) 72%, transparent)),
     var(--surface-inspector);
   box-shadow: 0 0 28px var(--panel-glow), inset 0 0 18px color-mix(in srgb, var(--orb-core) 18%, transparent);
-  transition:
-    border-color 220ms ease,
-    box-shadow 220ms ease,
-    filter 220ms ease;
 }
 
 .orb-core,
-.orb-ring,
-.orb-particle {
+.orb-ring {
   position: absolute;
   pointer-events: none;
   border-radius: 999px;
@@ -467,46 +311,8 @@ textarea:disabled {
   opacity: 0.55;
 }
 
-.orb-particle {
-  left: 50%;
-  top: 50%;
-  height: 0.34rem;
-  width: 0.34rem;
-  background: var(--orb-core);
-  box-shadow: 0 0 14px var(--orb-core);
-  opacity: 0.8;
-}
-
-.assistant-orb[data-state="idle"]:not([data-reduced-motion="true"]) {
-  animation: orbit-breathe 4.8s ease-in-out infinite;
-}
-
 .assistant-orb[data-state="ready"] {
   filter: saturate(1.08);
-}
-
-.assistant-orb[data-state="ready"]:not([data-reduced-motion="true"]) .orb-ring-outer {
-  animation: orbit-turn 12s linear infinite;
-}
-
-.assistant-orb[data-state="ready"]:not([data-reduced-motion="true"]) .orb-particle {
-  animation: orb-particle-orbit 8s linear infinite;
-}
-
-.assistant-orb[data-state="thinking"]:not([data-reduced-motion="true"]) .orb-ring-inner {
-  animation: ring-pulse 1.2s ease-in-out infinite;
-}
-
-.assistant-orb[data-state="thinking"]:not([data-reduced-motion="true"]) .orb-ring-outer {
-  animation: orbit-turn 2.8s linear infinite;
-}
-
-.assistant-orb[data-state="thinking"]:not([data-reduced-motion="true"]) .orb-core {
-  animation: core-pulse 1.05s ease-in-out infinite;
-}
-
-.assistant-orb[data-state="thinking"]:not([data-reduced-motion="true"]) .orb-particle {
-  animation: orb-particle-orbit 1.6s linear infinite;
 }
 
 .assistant-orb[data-state="thinking"] {
@@ -522,176 +328,4 @@ textarea:disabled {
     radial-gradient(circle at 34% 28%, var(--status-warning), color-mix(in srgb, var(--status-danger) 34%, transparent) 46%, color-mix(in srgb, var(--surface-base) 76%, transparent)),
     var(--surface-inspector);
   box-shadow: 0 0 24px color-mix(in srgb, var(--status-danger) 28%, transparent);
-}
-
-.assistant-orb[data-state="error"]:not([data-reduced-motion="true"]) {
-  animation: error-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes orbit-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.04);
-  }
-}
-
-@keyframes ambient-float {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(12px, -14px, 0) scale(1.04);
-  }
-}
-
-@keyframes core-flow {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-    opacity: 0.28;
-  }
-  50% {
-    transform: translate3d(-14px, 8px, 0) scale(1.02);
-    opacity: 0.42;
-  }
-}
-
-@keyframes orbit-drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
-  }
-  50% {
-    transform: translate3d(10px, -12px, 0) rotate(14deg) scale(1.04);
-  }
-}
-
-@keyframes grid-drift {
-  from {
-    background-position: 0 0;
-  }
-  to {
-    background-position: 48px 48px;
-  }
-}
-
-@keyframes scan-flow {
-  0%,
-  100% {
-    transform: translateX(-42%);
-    opacity: 0.1;
-  }
-  50% {
-    transform: translateX(42%);
-    opacity: 0.24;
-  }
-}
-
-@keyframes message-rise {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes surface-rise {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes ring-pulse {
-  0%,
-  100% {
-    opacity: 0.32;
-    transform: translate(-50%, -50%) scale(0.9);
-  }
-  50% {
-    opacity: 0.78;
-    transform: translate(-50%, -50%) scale(1.08);
-  }
-}
-
-@keyframes orbit-turn {
-  from {
-    transform: translate(-50%, -50%) rotate(0deg) scaleX(1.08);
-  }
-  to {
-    transform: translate(-50%, -50%) rotate(360deg) scaleX(1.08);
-  }
-}
-
-@keyframes core-pulse {
-  0%,
-  100% {
-    opacity: 0.62;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 0.96;
-    transform: scale(1.12);
-  }
-}
-
-@keyframes orb-particle-orbit {
-  from {
-    transform: rotate(0deg) translateX(1.75rem) rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg) translateX(1.75rem) rotate(-360deg);
-  }
-}
-
-@keyframes error-pulse {
-  0%,
-  100% {
-    filter: saturate(1);
-  }
-  50% {
-    filter: saturate(1.28) brightness(1.08);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: 0.001ms !important;
-  }
-
-  .simulation-grid,
-  .simulation-core,
-  .simulation-orbit,
-  .simulation-scan {
-    animation: none !important;
-  }
-}
-
-@media (pointer: coarse) {
-  .simulation-grid,
-  .simulation-core,
-  .simulation-orbit,
-  .simulation-scan {
-    animation: none !important;
-  }
-
-  .simulation-orbit {
-    opacity: 0.18;
-  }
 }
