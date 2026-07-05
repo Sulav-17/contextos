@@ -34,14 +34,9 @@ describe("DemoWorkspace", () => {
         "This guided demo uses fictional sample data and prepared responses. It does not access real user accounts, documents, or live AI services.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /create account/i })).toHaveAttribute(
-      "href",
-      "/signup?next=/home",
-    );
-    expect(screen.getByRole("link", { name: /return to contextos/i })).toHaveAttribute(
-      "href",
-      "/",
-    );
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /log in/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create account/i })).not.toBeInTheDocument();
   });
 
   it("uses suggested questions as deterministic primary interactions with citations", () => {

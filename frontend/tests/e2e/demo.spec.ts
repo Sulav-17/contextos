@@ -16,14 +16,9 @@ test("public demo loads with disclosure and deterministic citations", async ({ p
     .click();
   await expect(page.getByText(/review the launch-readiness checklist first/i)).toBeVisible();
   await expect(page.getByText("[1] Northstar Project Plan.pdf, page 3")).toBeVisible();
-  await expect(page.getByRole("link", { name: /Create account/i })).toHaveAttribute(
-    "href",
-    "/signup?next=/home",
-  );
-  await expect(page.getByRole("link", { name: /Return to ContextOS/i })).toHaveAttribute(
-    "href",
-    "/",
-  );
+  await expect(page.getByRole("link")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /log in/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /create account/i })).toHaveCount(0);
 });
 
 test("public demo composer is honest for unsupported questions", async ({ page }) => {
