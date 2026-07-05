@@ -1,27 +1,36 @@
 # ContextOS
 
-ContextOS is a private, invite-only personal knowledge assistant for PDF libraries, citation-backed chat, persistent conversations, and user-approved long-term memory.
+ContextOS is a private-by-design, multi-user personal knowledge assistant for PDF libraries, citation-backed chat, persistent conversations, and user-controlled long-term memory.
 
-## Problem
+## Current Product Shape
 
-People who manage private document collections need a system that can find evidence, answer questions with citations, and preserve useful context without giving up ownership, privacy, or control.
+The repository now contains an implemented beta-oriented application:
 
-## Version 1
+- Next.js frontend with TypeScript, Tailwind CSS, Quiet Orbit visual direction, PWA shell support, and Supabase session handling.
+- FastAPI backend with typed domain boundaries, Supabase JWT verification, PostgreSQL tenant isolation, private document storage paths, Redis/RQ background ingestion, and privacy-safe logging.
+- Citation-backed document chat for private PDFs.
+- Persistent conversations with archived and active states.
+- User-controlled memory surfaces for suggested, approved, disabled, and rejected memories.
+- A public interactive demo at `/demo`.
 
-Version 1 is a focused beta with:
+The public demo is a guided portfolio experience. It uses fictional documents, fictional memories, and deterministic prepared responses. It does not access real user accounts, production documents, storage objects, conversations, memories, authenticated APIs, or live AI services.
 
-- secure invite-only entry;
+## Version 1 Scope
+
+Version 1 focuses on:
+
+- public email/password signup with email confirmation;
 - private PDF upload and storage;
 - citation-backed document chat;
 - persistent conversations and summaries;
-- user-approved long-term memory;
+- user-approved long-term memory controls;
 - user and administrator control over access, deletion, and review.
 
 ## Non-Goals
 
-Version 1 does not include public signup, OCR, non-PDF file formats, autonomous external actions, team workspaces, billing, mobile apps, graph databases, LangGraph, Kubernetes, or complex 3D interfaces.
+Version 1 does not include public open signup, OCR, non-PDF file formats, autonomous external actions, team workspaces, billing, mobile apps, graph databases, LangGraph, Kubernetes, or complex 3D interfaces.
 
-## Proposed Stack
+## Approved Stack
 
 - Frontend: Next.js, TypeScript, Tailwind CSS.
 - Backend: Python, FastAPI, Pydantic, SQLAlchemy, Alembic.
@@ -31,11 +40,7 @@ Version 1 does not include public signup, OCR, non-PDF file formats, autonomous 
 - AI: internal provider interfaces with deterministic test providers, local adapters, and an optional hosted provider.
 - Deployment direction: Vercel for the frontend, Render for the API and worker, and Supabase for managed data services.
 
-These are the approved beta architecture directions, not claims that the services are already configured.
-
-## Current Status
-
-Milestone 1 establishes the documentation foundation only. Application implementation has not started yet.
+These are the approved beta architecture directions. Deployment must still be verified in the target environment before making production-readiness claims.
 
 ## Documentation Map
 
@@ -47,12 +52,17 @@ Milestone 1 establishes the documentation foundation only. Application implement
 - [Beta technology stack ADR](docs/decisions/0001-beta-technology-stack.md)
 - [Tenant isolation strategy ADR](docs/decisions/0002-tenant-isolation-strategy.md)
 - [Milestone roadmap](docs/milestones/roadmap.md)
-- [Milestone 1 spec](docs/milestones/milestone-01.md)
 
-## Warning
+## Local Commands
 
-Application implementation has not started. This repository currently contains documentation only.
+Backend commands run from `backend/`; frontend commands run from `frontend/`.
 
-## Notes
-
-No setup or run commands are defined yet.
+```powershell
+uv sync --locked --all-groups
+uv run pytest
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```

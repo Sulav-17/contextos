@@ -65,6 +65,12 @@ export function PublicLanding() {
               <ArrowRight aria-hidden="true" size={18} />
             </Link>
             <Link
+              className="touch-target inline-flex items-center rounded-lg border border-[var(--accent-intelligence)] px-5 font-semibold text-[var(--accent-intelligence)]"
+              href="/demo"
+            >
+              Try interactive demo
+            </Link>
+            <Link
               className="touch-target inline-flex items-center rounded-lg border border-[var(--border-subtle)] px-5 font-semibold text-[var(--text-secondary)]"
               href="/login?next=/home"
             >

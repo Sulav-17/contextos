@@ -125,9 +125,7 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
         sa.CheckConstraint("embedding_dimension > 0", name="ck_memory_embeddings_dimension"),
-        sa.CheckConstraint(
-            "length(content_sha256) = 64", name="ck_memory_embeddings_content_hash"
-        ),
+        sa.CheckConstraint("length(content_sha256) = 64", name="ck_memory_embeddings_content_hash"),
     )
     op.execute(
         """
@@ -206,9 +204,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_message_memory_references_message", table_name="message_memory_references"
-    )
+    op.drop_index("ix_message_memory_references_message", table_name="message_memory_references")
     op.drop_table("message_memory_references")
     op.drop_index("ix_memory_embeddings_vector", table_name="memory_embeddings")
     op.drop_index("ix_memory_embeddings_user_model", table_name="memory_embeddings")

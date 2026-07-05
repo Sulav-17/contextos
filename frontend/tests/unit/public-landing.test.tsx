@@ -24,6 +24,10 @@ describe("PublicLanding", () => {
 
     expect(container.querySelector('[data-app-shell="public"]')).toHaveClass("min-h-dvh");
     expect(container.querySelector('[data-app-shell="public"]')).not.toHaveClass("overflow-hidden");
+    expect(screen.getByRole("link", { name: "Try interactive demo" })).toHaveAttribute(
+      "href",
+      "/demo",
+    );
 
     fireEvent.change(screen.getByLabelText(/ask a private pdf question/i), {
       target: { value: "What does my policy say?" },

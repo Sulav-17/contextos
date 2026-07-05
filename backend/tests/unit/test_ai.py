@@ -96,16 +96,11 @@ async def test_gemini_embedding_uses_header_and_configured_dimension(
 
     assert RecordingAsyncClient.last_request is not None
     assert RecordingAsyncClient.last_request["url"] == (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        "text-embedding-004:embedContent"
+        "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent"
     )
     assert "super-secret" not in str(RecordingAsyncClient.last_request["url"])
-    assert RecordingAsyncClient.last_request["headers"] == {
-        "x-goog-api-key": "super-secret"
-    }
-    assert (
-        RecordingAsyncClient.last_request["json"]["outputDimensionality"] == 768
-    )
+    assert RecordingAsyncClient.last_request["headers"] == {"x-goog-api-key": "super-secret"}
+    assert RecordingAsyncClient.last_request["json"]["outputDimensionality"] == 768
 
 
 @pytest.mark.asyncio
@@ -115,11 +110,7 @@ async def test_gemini_chat_uses_header_without_key_in_url(
 ) -> None:
     settings = make_settings(llm_provider="gemini", ai_provider_api_key="chat-secret")
     RecordingAsyncClient.response = FakeResponse(
-        {
-            "candidates": [
-                {"content": {"parts": [{"text": "Grounded answer."}]}}
-            ]
-        }
+        {"candidates": [{"content": {"parts": [{"text": "Grounded answer."}]}}]}
     )
     monkeypatch.setattr("contextos.domain.ai.httpx.AsyncClient", RecordingAsyncClient)
 
@@ -128,8 +119,7 @@ async def test_gemini_chat_uses_header_without_key_in_url(
 
     assert RecordingAsyncClient.last_request is not None
     assert RecordingAsyncClient.last_request["url"] == (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-2.5-flash:generateContent"
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     )
     assert "chat-secret" not in str(RecordingAsyncClient.last_request["url"])
     assert RecordingAsyncClient.last_request["headers"] == {"x-goog-api-key": "chat-secret"}

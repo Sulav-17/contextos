@@ -27,6 +27,7 @@ USER_B: Final = UUID("10000000-0000-4000-8000-000000000002")
 RLS_TEST_USERS: Final = (USER_A, USER_B)
 RLS_TEST_EMAILS: Final = ("security-a@example.test", "security-b@example.test")
 
+
 def database_username(database_url: str) -> str:
     parsed = urlparse(database_url)
     if not parsed.username:
@@ -197,11 +198,13 @@ async def test_tenant_can_read_own_rows(
     session = await tenant_session(runtime_engine, user_a)
     try:
         user_rows = (
-            await session.execute(text("SELECT id FROM users ORDER BY email"))
-        ).scalars().all()
+            (await session.execute(text("SELECT id FROM users ORDER BY email"))).scalars().all()
+        )
         preference_rows = (
-            await session.execute(text("SELECT user_id FROM user_preferences ORDER BY user_id"))
-        ).scalars().all()
+            (await session.execute(text("SELECT user_id FROM user_preferences ORDER BY user_id")))
+            .scalars()
+            .all()
+        )
     finally:
         await session.rollback()
         await session.close()
@@ -332,8 +335,10 @@ async def test_memory_rows_are_tenant_isolated_by_rls(
     session = await tenant_session(runtime_engine, user_a)
     try:
         visible = (
-            await session.execute(text("SELECT content FROM memories ORDER BY content"))
-        ).scalars().all()
+            (await session.execute(text("SELECT content FROM memories ORDER BY content")))
+            .scalars()
+            .all()
+        )
         other_user = (
             await session.execute(
                 text("SELECT content FROM memories WHERE user_id = :user_b"),
