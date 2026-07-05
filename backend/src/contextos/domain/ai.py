@@ -141,9 +141,7 @@ class GeminiChatProvider:
                     _gemini_url(self.model, "generateContent"),
                     headers={"x-goog-api-key": self._api_key},
                     json={
-                        "systemInstruction": {
-                            "parts": [{"text": request.system_prompt}]
-                        },
+                        "systemInstruction": {"parts": [{"text": request.system_prompt}]},
                         "contents": [
                             {
                                 "role": "user",

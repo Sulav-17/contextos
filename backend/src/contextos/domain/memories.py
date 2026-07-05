@@ -312,9 +312,7 @@ async def create_manual_memory(
     )
     if memory is None:
         raise ValueError("memory_duplicate")
-    await upsert_memory_embedding(
-        session, user_id=user_id, memory_id=memory.id, settings=settings
-    )
+    await upsert_memory_embedding(session, user_id=user_id, memory_id=memory.id, settings=settings)
     return memory
 
 
@@ -790,9 +788,7 @@ async def _insert_memory(
 ) -> MemoryResponse | None:
     normalized = validate_memory_content(content)
     conflict_sql = (
-        "ON CONFLICT ON CONSTRAINT ux_memories_user_content DO NOTHING"
-        if allow_duplicate
-        else ""
+        "ON CONFLICT ON CONSTRAINT ux_memories_user_content DO NOTHING" if allow_duplicate else ""
     )
     result = await session.execute(
         text(

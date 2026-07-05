@@ -34,6 +34,7 @@ DOCUMENT_A: Final = UUID("33000000-0000-4000-8000-000000000001")
 DOCUMENT_B: Final = UUID("33000000-0000-4000-8000-000000000002")
 DOCUMENT_OTHER: Final = UUID("33000000-0000-4000-8000-000000000003")
 
+
 def build_alembic_config() -> Config:
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
@@ -515,7 +516,7 @@ async def test_normal_selected_factual_query_still_uses_similarity_threshold(
             f"/api/v1/conversations/{conversation['id']}/messages",
             headers={"Authorization": "Bearer user-a"},
             json={"question": "Who signed the agreement?", "document_ids": [str(DOCUMENT_A)]},
-    )
+        )
 
     assert answer.status_code == 200
     assert answer.json()["source_mode"] == "insufficient_evidence"
@@ -1372,8 +1373,8 @@ async def test_malformed_suggestion_cannot_be_approved(
                 },
             )
             await connection.execute(
-                    text(
-                        """
+                text(
+                    """
                         INSERT INTO memories (
                           id, user_id, memory_type, content, status, source_kind,
                           source_conversation_id, source_message_id, content_sha256
@@ -1383,15 +1384,15 @@ async def test_malformed_suggestion_cannot_be_approved(
                           'conversation', :conversation_id, :message_id, repeat('a', 64)
                         )
                         """
-                    ),
-                        {
-                            "memory_id": str(memory_id),
-                            "user_id": str(USER_A),
-                            "conversation_id": str(conversation_id),
-                            "message_id": str(message_id),
-                            "content": content,
-                        },
-                    )
+                ),
+                {
+                    "memory_id": str(memory_id),
+                    "user_id": str(USER_A),
+                    "conversation_id": str(conversation_id),
+                    "message_id": str(message_id),
+                    "content": content,
+                },
+            )
         approval = client.post(
             f"/api/v1/memories/{memory_id}/approve",
             headers={"Authorization": "Bearer user-a"},

@@ -640,9 +640,7 @@ async def submit_question(
             chat_provider = build_chat_provider(settings)
             chat_request = _build_chat_request(question, [], settings, memories=memories)
             timing.mark("prompt_construction")
-            chat_result = await chat_provider.generate(
-                chat_request
-            )
+            chat_result = await chat_provider.generate(chat_request)
             timing.mark("gemini_generation")
             answer = _safe_provider_answer(chat_result.content, has_document_evidence=False)
             usage = await _increment_usage_or_raise(session, user_id=user_id, settings=settings)
@@ -986,8 +984,8 @@ def _build_chat_request(
         document_parts.append(
             "\n".join(
                 [
-                    f"<evidence id=\"{index}\" document=\"{chunk.document_name}\" "
-                    f"page=\"{chunk.page_number}\">",
+                    f'<evidence id="{index}" document="{chunk.document_name}" '
+                    f'page="{chunk.page_number}">',
                     excerpt,
                     "</evidence>",
                 ]
