@@ -102,6 +102,11 @@ describe("service worker cache safety", () => {
     expect(source).not.toContain('addEventListener("sync"');
     expect(source).not.toContain("mutation");
   });
+
+  it("does not add the public demo to the service worker static asset cache", () => {
+    expect(source).not.toContain('"/demo"');
+    expect(source).not.toContain("'/demo'");
+  });
 });
 
 describe("private client state cleanup", () => {
