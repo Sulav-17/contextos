@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import {
-  ArrowRight,
   BookOpen,
   CheckCircle2,
   MessageSquareText,
@@ -62,18 +60,8 @@ export function DemoWorkspace() {
         Skip to demo content
       </a>
       <header className="mx-auto flex max-w-7xl items-center justify-between gap-3">
-        <Link className="text-lg font-semibold tracking-normal" href="/">
-          ContextOS
-        </Link>
-        <div className="flex items-center gap-2">
-          <ThemeControl compact />
-          <Link
-            className="touch-target inline-flex items-center rounded-lg border border-[var(--border-subtle)] px-4 text-sm text-[var(--text-secondary)]"
-            href="/"
-          >
-            Return to ContextOS
-          </Link>
-        </div>
+        <p className="text-lg font-semibold tracking-normal">ContextOS</p>
+        <ThemeControl compact />
       </header>
 
       <section className="mx-auto mt-10 max-w-7xl" id="demo-content">
@@ -95,23 +83,14 @@ export function DemoWorkspace() {
               access real user accounts, documents, or live AI services.
             </p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
-            <Link
-              className="touch-target inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent-intelligence)] px-5 text-sm font-semibold text-[#061019]"
-              href="/signup?next=/home"
-            >
-              Create account
-              <ArrowRight aria-hidden="true" size={18} />
-            </Link>
-            <button
-              className="touch-target inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-5 text-sm font-semibold text-[var(--text-secondary)]"
-              onClick={resetDemo}
-              type="button"
-            >
-              <RotateCcw aria-hidden="true" size={17} />
-              Reset demo
-            </button>
-          </div>
+          <button
+            className="touch-target inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-5 text-sm font-semibold text-[var(--text-secondary)]"
+            onClick={resetDemo}
+            type="button"
+          >
+            <RotateCcw aria-hidden="true" size={17} />
+            Reset demo
+          </button>
         </div>
 
         <div className="mt-6">
