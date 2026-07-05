@@ -8,6 +8,7 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: pgvector/pgvector:0.8.3-pg17-trixie
@@ -24,6 +25,7 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+
       redis:
         image: redis:8.8.0-alpine
         ports:
@@ -33,24 +35,35 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 12
+
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v7
-      - uses: actions/setup-python@v6
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version-file: backend/.python-version
+
       - name: Install backend
         working-directory: backend
         run: uv sync --locked --all-groups
+
       - name: Backend format
         working-directory: backend
         run: uv run ruff format --check .
+
       - name: Backend lint
         working-directory: backend
         run: uv run ruff check .
+
       - name: Backend typecheck
         working-directory: backend
         run: uv run mypy src tests
+
       - name: Bootstrap isolated test database
         working-directory: backend
         env:
@@ -60,6 +73,7 @@ jobs:
           CONTEXTOS_TEST_MIGRATION_DATABASE_URL: postgresql+asyncpg://contextos_migration:test-migration-password@127.0.0.1:15432/contextos_test
           POSTGRES_APP_USER: contextos_app
         run: uv run python -m tests.bootstrap_test_database
+
       - name: Backend migrations
         working-directory: backend
         env:
@@ -69,6 +83,7 @@ jobs:
           CONTEXTOS_TEST_MIGRATION_DATABASE_URL: postgresql+asyncpg://contextos_migration:test-migration-password@127.0.0.1:15432/contextos_test
           POSTGRES_APP_USER: contextos_app
         run: uv run alembic upgrade head
+
       - name: Backend tests
         working-directory: backend
         env:
@@ -82,32 +97,52 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: corepack enable
+
       - name: Install frontend
         working-directory: frontend
         run: pnpm install --frozen-lockfile
+
       - name: Lint
         working-directory: frontend
         run: pnpm lint
+
       - name: Typecheck
         working-directory: frontend
         run: pnpm typecheck
+
       - name: Unit tests
         working-directory: frontend
         run: pnpm test
+
       - name: Build
         working-directory: frontend
         run: pnpm build
+
       - name: Secret scan
         working-directory: frontend
         run: pnpm secret-scan
+
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Public smoke tests
         working-directory: frontend
         run: pnpm test:e2e
