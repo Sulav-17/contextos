@@ -40,7 +40,7 @@ htmlcov/
 .supabase/
 tmp/
 temp/
-uploads/
+/uploads/
 data/
 private-documents/
 
